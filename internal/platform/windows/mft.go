@@ -112,7 +112,7 @@ func (m *MFTScanner) Run() ([]core.Threat, error) {
 		if err == nil {
 			volumePath = shadowPath // Use shadow copy instead of live volume
 			// Register cleanup
-			defer vss.DeleteShadowCopies()
+			defer vss.DeleteShadowCopy()
 		} else {
 			fmt.Printf("[-] VSS Failed: %v. Trying live volume (expect locks)...\n", err)
 		}

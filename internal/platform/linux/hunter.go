@@ -13,11 +13,85 @@ import (
 
 // LinuxHunter implements advanced Linux threat detection
 type LinuxHunter struct {
-	Threats []core.Threat
+	Threats     []core.Threat
+	driverFile  *os.File
+	driverReady bool
 }
 
 func NewLinuxHunter() *LinuxHunter {
-	return &LinuxHunter{}
+	hunter := &LinuxHunter{}
+	hunter.connectDriver()
+	return hunter
+}
+
+// connectDriver opens /dev/arakne for kernel communication
+func (l *LinuxHunter) connectDriver() {
+	file, err := os.OpenFile("/dev/arakne", os.O_RDWR, 0)
+	if err != nil {
+		fmt.Println("[!] Kernel driver not loaded. Some features disabled.")
+		l.driverReady = false
+		return
+	}
+	l.driverFile = file
+	l.driverReady = true
+	fmt.Println("[+] Connected to kernel driver (/dev/arakne)")
+}
+
+// writeCommand sends a command to the driver via write
+func (l *LinuxHunter) writeCommand(cmd string) error {
+	if !l.driverReady || l.driverFile == nil {
+		return fmt.Errorf("driver not connected")
+	}
+	_, err := l.driverFile.WriteString(cmd)
+	return err
+}
+
+// readStatus reads driver status
+func (l *LinuxHunter) readStatus() (string, error) {
+	if !l.driverReady || l.driverFile == nil {
+		return "", fmt.Errorf("driver not connected")
+	}
+	buf := make([]byte, 256)
+	n, err := l.driverFile.Read(buf)
+	if err != nil {
+		return "", err
+	}
+	return string(buf[:n]), nil
+}
+
+// EnableNukeMode activates aggressive blocking in kernel
+func (l *LinuxHunter) EnableNukeMode() error {
+	fmt.Println("[*] Enabling Nuke Mode in kernel...")
+	return l.writeCommand("NUKE:1")
+}
+
+// EnableNetworkIsolation activates netfilter blocking
+func (l *LinuxHunter) EnableNetworkIsolation(enable bool) error {
+	val := "0"
+	if enable {
+		val = "1"
+	}
+	fmt.Printf("[*] Network Isolation: %v\n", enable)
+	return l.writeCommand("NET:" + val)
+}
+
+// KillProcess sends kill request to kernel
+func (l *LinuxHunter) KillProcess(pid int) error {
+	fmt.Printf("[*] Requesting kernel to kill PID %d\n", pid)
+	return l.writeCommand(fmt.Sprintf("KILL:%d", pid))
+}
+
+// RegisterSelfDefense protects our process
+func (l *LinuxHunter) RegisterSelfDefense() error {
+	pid := os.Getpid()
+	fmt.Printf("[*] Registering self-defense for PID %d\n", pid)
+	return l.writeCommand(fmt.Sprintf("PROTECT:%d", pid))
+}
+
+func (l *LinuxHunter) Close() {
+	if l.driverFile != nil {
+		l.driverFile.Close()
+	}
 }
 
 func (l *LinuxHunter) Name() string {
@@ -28,7 +102,12 @@ func (l *LinuxHunter) Run() ([]core.Threat, error) {
 	fmt.Println("[*] Starting Linux Hunter...")
 	l.Threats = []core.Threat{}
 
-	// 1. Scan for hidden processes (kernel rootkit detection)
+	// Register self-defense if driver is available
+	if l.driverReady {
+		l.RegisterSelfDefense()
+	}
+
+	// 1. Scan for hidden processes
 	l.scanHiddenProcesses()
 
 	// 2. Check for LD_PRELOAD hijacking
@@ -53,7 +132,6 @@ func (l *LinuxHunter) Run() ([]core.Threat, error) {
 func (l *LinuxHunter) scanHiddenProcesses() {
 	fmt.Println("    [-] Scanning for hidden processes...")
 
-	// Get PIDs from /proc
 	procPids := make(map[int]bool)
 	files, _ := ioutil.ReadDir("/proc")
 	for _, f := range files {
@@ -62,15 +140,12 @@ func (l *LinuxHunter) scanHiddenProcesses() {
 		}
 	}
 
-	// Compare with ps output (simplified - in real scenario use syscall)
-	// Hidden processes would be in kernel but not visible in /proc
 	fmt.Printf("    [+] Found %d processes in /proc\n", len(procPids))
 }
 
 func (l *LinuxHunter) checkLDPreload() {
 	fmt.Println("    [-] Checking for LD_PRELOAD hijacking...")
 
-	// Check /etc/ld.so.preload
 	if data, err := ioutil.ReadFile("/etc/ld.so.preload"); err == nil {
 		content := strings.TrimSpace(string(data))
 		if content != "" {
@@ -83,7 +158,6 @@ func (l *LinuxHunter) checkLDPreload() {
 		}
 	}
 
-	// Check environment
 	if preload := os.Getenv("LD_PRELOAD"); preload != "" {
 		l.Threats = append(l.Threats, core.Threat{
 			Name:        "LD_PRELOAD Environment Set",
@@ -135,7 +209,6 @@ func (l *LinuxHunter) checkSSHKeys() {
 	if data, err := ioutil.ReadFile(authKeysPath); err == nil {
 		lines := strings.Split(string(data), "\n")
 		for _, line := range lines {
-			// Check for command= options (forced commands can be backdoors)
 			if strings.Contains(line, "command=") {
 				l.Threats = append(l.Threats, core.Threat{
 					Name:        "SSH Forced Command",
@@ -152,13 +225,12 @@ func (l *LinuxHunter) checkSSHKeys() {
 func (l *LinuxHunter) scanKernelModules() {
 	fmt.Println("    [-] Checking loaded kernel modules...")
 
-	// Read /proc/modules
 	data, err := ioutil.ReadFile("/proc/modules")
 	if err != nil {
 		return
 	}
 
-	susModules := []string{"rootkit", "reptile", "diamorphine", "suterusu"}
+	susModules := []string{"rootkit", "reptile", "diamorphine", "suterusu", "adore"}
 	lines := strings.Split(string(data), "\n")
 
 	for _, line := range lines {
@@ -227,7 +299,7 @@ func (l *LinuxHunter) scanFileForPatterns(path string, patterns []string, threat
 					Level:       core.LevelHigh,
 					FilePath:    path,
 				})
-				return // One match per file is enough
+				return
 			}
 		}
 	}

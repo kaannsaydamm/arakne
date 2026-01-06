@@ -118,8 +118,22 @@ NTSTATUS ArakneDeviceControl(
 
         case IOCTL_ARAKNE_ETW_SUBSCRIBE:
             KdPrint(("Arakne: ETW Subscription requested (handled in user-mode)\n"));
-            // ETW is better handled in user-mode via TraceLogging
-            // This IOCTL is reserved for future kernel-mode ETW integration
+            break;
+
+        case IOCTL_ARAKNE_SET_WHITELIST:
+            {
+                if (stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(ARAKNE_WHITELIST_REQUEST)) {
+                    status = STATUS_BUFFER_TOO_SMALL;
+                    break;
+                }
+                PARAKNE_WHITELIST_REQUEST input = (PARAKNE_WHITELIST_REQUEST)Irp->AssociatedIrp.SystemBuffer;
+                if (input) {
+                    // Forward to callbacks.c
+                    extern NTSTATUS UpdateWhitelist(PARAKNE_WHITELIST_REQUEST request);
+                    status = UpdateWhitelist(input);
+                    KdPrint(("Arakne: Whitelist updated with %d entries\n", input->EntryCount));
+                }
+            }
             break;
 
         default:
