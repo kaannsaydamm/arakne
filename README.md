@@ -1,103 +1,410 @@
-# 🕷️ ARAKNE (Project SystemPurge)
+# 🕷️ ARAKNE
 ### Advanced Forensic & Remediation Framework
-**Versiyon:** v1.0.0
+**Version:** v2.0.0  |  **Author:** Kaan Saydam  |  **License:** MIT
 
 ---
 
-## 🇹🇷 TURKISH (TÜRKÇE)
+## 📖 Genel Bakış / Overview
 
-**Arakne**, gelişmiş siber güvenlik ve temizlik operasyonları için tasarlanmış, işletim sistemi API'lerinin manipüle edilebileceği durumlarda doğrudan sistem kaynaklarını analiz eden bir araçtır. Standart güvenlik çözümlerinin (EDR/AV) yetersiz kaldığı; Rootkit, Bootkit, Ransomware ve Dosyasız (Fileless) tehditlere karşı, sistem bütünlüğünü sağlamak ve zararlıları temizlemek için kullanılır.
+**Arakne**, işletim sistemi seviyesinde derinlemesine tehdit analizi ve temizleme operasyonları için tasarlanmış kapsamlı bir güvenlik aracıdır. Standart güvenlik çözümlerinin (EDR/AV) yetersiz kaldığı durumlarda, sistem kaynaklarına doğrudan erişerek Rootkit, Bootkit, Ransomware ve Fileless tehditleri tespit eder ve temizler.
 
-Felsefemiz: **"Varsayım Yapma. Doğrula."**
-
-### 🚀 Özellikler
-
-#### 🪟 Windows Modülü
-- **Yüksek Yetkili Süreç Yönetimi:** `SeDebugPrivilege` haklarını kullanarak, erişimi engellenmiş inatçı süreçleri (Ransomware vb.) sonlandırma yeteneği.
-- **MFT & Disk Raw Analizi:** Dosya sistemi API'lerini bypass ederek, diski sektör seviyesinde okur. Gizli dosyaları ve NTFS $MFT kayıtlarını analiz eder.
-- **Offline Registry Analizi:** Gizlenen kayıt defteri anahtarlarını, hive dosyalarını (SYSTEM, SOFTWARE) diskten doğrudan okuyarak tespit eder.
-- **Sürücü Güvenliği:** Bilinen zafiyetli sürücüleri (BYOVD) tespit eder.
-- **ShimCache Analizi:** Silinmiş dosyaların geçmiş çalıştırma izlerini raporlar.
-
-#### 🐧 Linux Modülü
-- **Kernel İzleme (eBPF):** Çekirdek seviyesinde `sys_execve` gibi çağrıları izleyerek gizli süreçleri (Hidden Processes) tespit eder.
-- **Bellek/Dosyasız Tehdit Analizi:** `memfd_create` kullanan ve diskte iz bırakmayan zararlıları `/proc` ve bellek haritalarını tarayarak bulur.
-- **Bellek Yapı Analizi:** Kernel bellek yapılarını tarayarak listeden silinmiş süreçleri ifşa eder.
-
-#### 🍎 macOS Modülü
-- **Gizlilik (TCC) Analizi:** TCC veritabanını analiz ederek kamera, mikrofon ve disk erişimi olan yetkisiz uygulamaları raporlar.
-- **Kalıcılık Analizi:** LaunchAgents, LaunchDaemons ve plist dosyalarını tarar.
-
-#### 🛡️ Remediation & Karantina
-- **Güvenli Müdahale:** Tehdit tespit edildiğinde ağ bağlantısı kesilir ve süreç askıya alınır.
-- **Karantina:** Zararlı dosya karantina dizinine taşınır ve şifrelenerek (XOR) etkisiz hale getirilir.
-- **Kanıt Toplama (Evidence Bag):** Dosya silinmeden önce hash'i alınır ve kanıt olarak saklanır.
-- **Otomatik Temizlik (Nuke):** Kullanıcı onayı beklemeden tehditleri etkisiz hale getirme modu.
-
-### 💻 Kullanım
-
-**1. İnteraktif Mod (Önerilen):**
-```bash
-./arakne.exe
-```
-Menüden işletim sistemini ve tarama türünü seçin.
-
-**2. Otomatik Temizlik (Agresif):**
-```bash
-./arakne.exe --nuke
-```
-Tespit edilen tehditleri otomatik olarak karantinaya alır ve temizler.
-
-⚠️ **YASAL UYARI:** Bu araç sistem üzerinde derinlemesine analiz ve değişiklik yapma yeteneğine sahiptir. Yanlış kullanım sistem kararlılığını etkileyebilir. Kritik sistemlerde kullanmadan önce yedek almanız önerilir.
+**Arakne** is a comprehensive security tool designed for deep threat analysis and remediation at the operating system level. It directly accesses system resources to detect and clean Rootkits, Bootkits, Ransomware, and Fileless threats when standard security solutions fail.
 
 ---
 
-## 🇺🇸 ENGLISH
+## 📋 İçindekiler / Table of Contents
 
-**Arakne** is an advanced forensic and remediation tool designed for scenarios where OS APIs may be compromised. It accesses raw system resources to validate system integrity. It serves as a specialized solution against Rootkits, Bootkits, Ransomware, and Fileless malware when standard defenses are bypassed.
-
-Our Philosophy: **"Trust Nothing. Verify Everything."**
-
-### 🚀 Features
-
-#### 🪟 Windows Module
-- **Elevated Process Management:** Uses `SeDebugPrivilege` to terminate stubborn processes (e.g., Ransomware) that deny standard access.
-- **Raw Disk & MFT Parsing:** Bypasses OS APIs to read the disk at the sector level. Parses NTFS Master File Table ($MFT) to find hidden/locked files.
-- **Offline Registry Analysis:** Reads Registry Hives (SYSTEM, SOFTWARE) directly from disk to uncover hidden persistence keys.
-- **Vulnerable Driver Detection:** Identifies drivers known to be vulnerable (BYOVD).
-- **ShimCache Analysis:** Reconstructs execution history of deleted binaries.
-
-#### 🐧 Linux Module
-- **Kernel Monitoring (eBPF):** Hooks kernel syscalls (`sys_execve`) to trace execution paths invisible to userspace.
-- **Memory/Fileless Analysis:** Scans `/proc` and memory maps to detect malware running solely in RAM via `memfd_create`.
-- **Kernel Structure Analysis:** Analyzes Kernel memory to find unlinked processes.
-
-#### 🍎 macOS Module
-- **Privacy (TCC) Analysis:** Parses the TCC database to detect unauthorized entitlements (Camera, Mic, Full Disk Access).
-- **Persistence Analysis:** Scans for malicious LaunchAgents and LaunchDaemons.
-
-#### 🛡️ Remediation & Quarantine
-- **Secure Response:** Threats are immobilized (suspended/network cut) immediately upon detection.
-- **Quarantine:** Artifacts are moved to a secure vault and encrypted (XOR) to neutralize them.
-- **Evidence Collection:** Proof is hashed and secured before remediation.
-- **Auto-Cleanup (Nuke):** Automated neutralization mode without user interaction.
-
-### 💻 Usage
-
-**1. Interactive Mode (Recommended):**
-```bash
-./arakne.exe
-```
-Select your OS and scan options from the menu.
-
-**2. Auto-Cleanup (Aggressive):**
-```bash
-./arakne.exe --nuke
-```
-Automatically detects, quarantines, and removes threats.
-
-⚠️ **DISCLAIMER:** This tool operates at a low level on the system. Improper use may cause system instability. Backup is recommended before use.
+- [Özellikler / Features](#-özellikler--features)
+- [Kurulum / Installation](#-kurulum--installation)
+  - [Windows](#windows-kurulumu)
+  - [Linux](#linux-kurulumu)
+  - [macOS](#macos-kurulumu)
+- [Kullanım / Usage](#-kullanım--usage)
+- [Modüller / Modules](#-modüller--modules)
+- [Sürücü Derleme / Driver Compilation](#-sürücü-derleme--driver-compilation)
+- [Katkıda Bulunma / Contributing](#-katkıda-bulunma)
 
 ---
 
-### Made By Kaan Saydam, 2026.
+## 🚀 Özellikler / Features
+
+### Windows Modülü
+| Özellik | Açıklama |
+|---------|----------|
+| **YARA Tarayıcı** | 6 dahili kural ile zararlı yazılım tespiti (Mimikatz, CobaltStrike, Meterpreter, PowerShell, WebShell, Ransomware) |
+| **MFT Parser** | NTFS $MFT kayıtlarını ayrıştırır, timestomping ve ADS tespit eder |
+| **Registry Analizi** | Run keys, Services, IFEO, AppInit_DLLs kalıcılık mekanizmalarını tarar |
+| **Memory Scanner** | RWX bellekte çalışan shellcode/beacon tespiti |
+| **ETW Sniffer** | PowerShell ScriptBlock, .NET Assembly, AMSI log analizi |
+| **UEFI Scanner** | Secure Boot, Test Signing, DEP durumu kontrolü |
+| **Shimcache Parser** | AppCompatCache'den çalıştırma geçmişi çıkarır |
+| **LOLDriver Scanner** | Bilinen zafiyetli sürücüleri hash ile tespit eder |
+| **Browser Forensics** | Chrome/Edge uzantı analizi |
+| **WFP Network Killswitch** | Kernel seviyesinde ağ izolasyonu |
+
+### Linux Modülü
+| Özellik | Açıklama |
+|---------|----------|
+| **Hidden Process Detection** | /proc taraması ile gizli süreç tespiti |
+| **LD_PRELOAD Check** | Library injection tespiti |
+| **Crontab Scanner** | Kalıcılık için cron analizi |
+| **Kernel Module Check** | Bilinen rootkit modüllerini tespit eder |
+| **Memfd Hunter** | /proc/maps ile fileless malware tespiti |
+| **Deleted Binary Detection** | Silinen ama çalışan binary'leri bulur |
+
+### macOS Modülü
+| Özellik | Açıklama |
+|---------|----------|
+| **LaunchAgent/Daemon Analizi** | Plist dosyalarını tarar |
+| **Shell Profile Check** | .bashrc/.zshrc kalıcılık kontrolü |
+| **Kext Scanner** | Yüklü kernel uzantılarını listeler |
+| **SIP Status Check** | System Integrity Protection durumu |
+
+---
+
+## 📦 Kurulum / Installation
+
+### Hızlı Başlangıç (Prebuilt Binary)
+
+Eğer derlemek istemiyorsanız, hazır binary kullanabilirsiniz:
+
+```bash
+# Windows
+git clone https://github.com/kaannsaydamm/arakne.git
+cd arakne
+.\arakne.exe
+
+# Linux/macOS
+git clone https://github.com/kaannsaydamm/arakne.git
+cd arakne
+chmod +x arakne
+./arakne
+```
+
+---
+
+### Windows Kurulumu
+
+#### Gereksinimler
+- Windows 10/11 (64-bit)
+- Administrator yetkisi
+- (Opsiyonel) Go 1.21+ (kaynak koddan derlemek için)
+- (Opsiyonel) Windows Driver Kit (WDK) (kernel sürücüsü için)
+
+#### Adım 1: Binary Kullanımı
+```powershell
+# Yönetici olarak PowerShell aç
+cd C:\path\to\arakne
+.\arakne.exe
+```
+
+#### Adım 2: Kaynak Koddan Derleme
+```powershell
+# Go'nun kurulu olduğundan emin ol
+go version
+
+# Projeyi klonla
+git clone https://github.com/kaannsaydamm/arakne.git
+cd arakne
+
+# Bağımlılıkları indir
+go mod tidy
+
+# Derle
+go build -o arakne.exe ./cmd/arakne
+
+# Çalıştır (Yönetici olarak)
+.\arakne.exe
+```
+
+#### Adım 3: Windows Sürücüsü Kurulumu (Opsiyonel - Gelişmiş Özellikler)
+```powershell
+# 1. Test Signing modunu aç (reboot gerektirir)
+bcdedit /set testsigning on
+
+# 2. Visual Studio + WDK kur
+# https://docs.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk
+
+# 3. Sürücüyü derle
+cd driver\windows
+msbuild ArakneDriver.sln /p:Configuration=Release /p:Platform=x64
+
+# 4. Sürücüyü yükle (Driver otomatik yüklenir, manuel için:)
+sc create Arakne type= kernel binPath= "C:\path\to\ArakneDriver.sys"
+sc start Arakne
+
+# 5. Doğrula
+driverquery | findstr Arakne
+```
+
+---
+
+### Linux Kurulumu
+
+#### Gereksinimler
+- Linux Kernel 4.x+ (64-bit)
+- Root yetkisi
+- Go 1.21+
+- (Opsiyonel) Kernel headers (kernel modülü için)
+- (Opsiyonel) build-essential, make
+
+#### Adım 1: Binary Kullanımı
+```bash
+# Projeyi klonla
+git clone https://github.com/kaannsaydamm/arakne.git
+cd arakne
+
+# Çalıştır
+sudo ./arakne
+```
+
+#### Adım 2: Kaynak Koddan Derleme
+```bash
+# Go kur
+sudo apt install golang-go   # Debian/Ubuntu
+# veya
+sudo dnf install golang      # Fedora
+
+# Projeyi klonla
+git clone https://github.com/kaannsaydamm/arakne.git
+cd arakne
+
+# Bağımlılıkları indir
+go mod tidy
+
+# Derle
+go build -o arakne ./cmd/arakne
+
+# Çalıştır
+sudo ./arakne
+```
+
+#### Adım 3: Linux Kernel Modülü Kurulumu (Opsiyonel)
+```bash
+# 1. Kernel headers kur
+sudo apt install linux-headers-$(uname -r)   # Debian/Ubuntu
+sudo dnf install kernel-devel                 # Fedora
+
+# 2. Modülü derle
+cd driver/linux
+make
+
+# 3. Modülü yükle
+sudo insmod arakne_probe.ko
+
+# 4. Doğrula
+lsmod | grep arakne
+dmesg | tail -10
+
+# 5. Cihazı kontrol et
+ls -la /dev/arakne
+
+# 6. Modülü kaldır (opsiyonel)
+sudo rmmod arakne_probe
+```
+
+---
+
+### macOS Kurulumu
+
+#### Gereksinimler
+- macOS 11+ (Big Sur veya üzeri)
+- Root yetkisi
+- Go 1.21+
+- Xcode Command Line Tools
+
+#### Adım 1: Derleme
+```bash
+# Xcode tools kur
+xcode-select --install
+
+# Go kur (Homebrew ile)
+brew install go
+
+# Projeyi klonla
+git clone https://github.com/kaannsaydamm/arakne.git
+cd arakne
+
+# Bağımlılıkları indir (macOS için özel)
+GOOS=darwin go mod tidy
+
+# Derle
+GOOS=darwin GOARCH=amd64 go build -o arakne ./cmd/arakne
+# veya Apple Silicon için:
+GOOS=darwin GOARCH=arm64 go build -o arakne ./cmd/arakne
+
+# Çalıştır
+sudo ./arakne
+```
+
+---
+
+## 🎮 Kullanım / Usage
+
+### İnteraktif Mod (Önerilen)
+```bash
+# Windows
+.\arakne.exe
+
+# Linux/macOS
+sudo ./arakne
+```
+
+Menüden seçenekleri kullanarak:
+1. **Quick Scan** - Hızlı tarama (Browser, Logs, Drivers)
+2. **Deep Dive** - Derinlemesine analiz (MFT, Memory, UEFI)
+3. **YARA Scan** - Zararlı yazılım imza taraması
+4. **Kill Process** - Kernel seviyesinde süreç sonlandırma
+5. **Quarantine** - Dosya karantinaya alma
+6. **Whitelist** - Korumalı süreçleri görüntüle
+7. **Network Killswitch** - Ağ trafiğini engelle
+8. **Evidence Bag** - Kanıt toplama
+9. **Reporting** - JSON/HTML rapor oluştur
+
+### Otomatik Temizlik Modu
+```bash
+# Tehdit tespitinde otomatik temizlik
+.\arakne.exe --nuke
+```
+
+### Yardım
+```bash
+.\arakne.exe --help
+```
+
+---
+
+## 📊 Modüller / Modules
+
+### Tarama Modülleri
+| Modül | Dosya | Açıklama |
+|-------|-------|----------|
+| YARA | `yara.go` | Dahili imza tabanlı tarama |
+| Memory | `memory.go` | RWX bellek bölgesi tespiti |
+| MFT | `mft.go` | NTFS kayıt ayrıştırma |
+| ETW | `etw.go` | Event log analizi |
+| Registry | `registry.go` | Kalıcılık taraması |
+| Shimcache | `shimcache.go` | Çalıştırma geçmişi |
+| UEFI | `uefi.go` | Boot güvenliği |
+| LOLDrivers | `loldrivers.go` | Zafiyetli sürücüler |
+| Browser | `browser.go` | Uzantı analizi |
+| Forensics | `forensics.go` | Olay günlüğü analizi |
+
+### Remediation Modülleri
+| Modül | Dosya | Açıklama |
+|-------|-------|----------|
+| Process Killer | `process_killer.go` | Kernel destekli süreç sonlandırma |
+| Quarantine | `quarantine.go` | XOR şifrelemeli karantina |
+| Evidence | `evidence.go` | Kanıt ZIP'leme |
+| Reporting | `reporting.go` | JSON/HTML rapor |
+
+---
+
+## 🔧 Sürücü Derleme / Driver Compilation
+
+### Windows Driver (WDK Gerekli)
+```powershell
+# Visual Studio 2022 + WDK 10 kur
+cd driver\windows
+
+# Derle
+msbuild ArakneDriver.sln /p:Configuration=Release /p:Platform=x64
+
+# Çıktı: x64\Release\ArakneDriver.sys
+```
+
+### Linux Kernel Module
+```bash
+cd driver/linux
+
+# Derle
+make
+
+# Çıktı: arakne_probe.ko
+
+# Test
+sudo insmod arakne_probe.ko
+sudo dmesg | tail
+```
+
+---
+
+## 📁 Proje Yapısı
+
+```
+arakne/
+├── cmd/
+│   └── arakne/
+│       ├── main.go           # Ana giriş noktası
+│       └── menu_helpers.go   # Menü fonksiyonları
+├── driver/
+│   ├── linux/
+│   │   ├── main.c            # Linux kernel modülü
+│   │   └── Makefile
+│   └── windows/
+│       ├── main.c            # Windows KMDF sürücüsü
+│       ├── callbacks.c       # Process/DLL/Registry callbacks
+│       ├── wfp.c             # Network killswitch
+│       └── ioctl.h           # IOCTL tanımları
+├── internal/
+│   ├── core/
+│   │   ├── interfaces.go     # Temel arayüzler
+│   │   ├── whitelist.go      # Korumalı süreçler
+│   │   ├── quarantine.go     # Karantina sistemi
+│   │   ├── evidence.go       # Kanıt toplama
+│   │   ├── reporting.go      # Raporlama
+│   │   └── remediation.go    # Tehdit müdahale
+│   ├── platform/
+│   │   ├── windows/          # 16 Windows modülü
+│   │   ├── linux/            # 2 Linux modülü
+│   │   └── darwin/           # 1 macOS modülü
+│   └── utils/
+│       └── admin.go          # Yetki kontrolü
+├── evidence/                  # Kanıt dizini
+├── go.mod
+├── go.sum
+├── Makefile
+├── LICENSE
+└── README.md
+```
+
+---
+
+## ⚠️ Yasal Uyarı / Disclaimer
+
+Bu araç sistem üzerinde derinlemesine analiz ve değişiklik yapma yeteneğine sahiptir. 
+
+**KULLANIM UYARILARI:**
+- Sadece yetkili olduğunuz sistemlerde kullanın
+- Kritik sistemlerde kullanmadan önce yedek alın
+- Test ortamında deneyin
+- Kernel sürücüleri sistem kararlılığını etkileyebilir
+
+**Bu yazılım "OLDUĞU GİBİ" sağlanmaktadır, herhangi bir garanti verilmemektedir.**
+
+---
+
+## 🤝 Katkıda Bulunma
+
+1. Fork yapın
+2. Feature branch oluşturun (`git checkout -b feature/yeni-ozellik`)
+3. Değişikliklerinizi commit edin (`git commit -m 'Yeni özellik eklendi'`)
+4. Branch'e push yapın (`git push origin feature/yeni-ozellik`)
+5. Pull Request açın
+
+---
+
+## 📜 Lisans
+
+MIT License - Detaylar için [LICENSE](LICENSE) dosyasına bakın.
+
+---
+
+## 📞 İletişim
+
+**Kaan Saydam**  
+GitHub: [@kaannsaydamm](https://github.com/kaannsaydamm)
+
+---
+
+*Made with ☕ in Turkey, 2026*

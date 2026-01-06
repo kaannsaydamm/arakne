@@ -5,7 +5,10 @@ type ThreatLevel int
 
 const (
 	LevelInfo ThreatLevel = iota
+	LevelLow
+	LevelMedium
 	LevelSuspicious
+	LevelHigh
 	LevelMalicious
 	LevelCritical
 )

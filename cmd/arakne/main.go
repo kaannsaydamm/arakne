@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"arakne/internal/core"
-	"arakne/internal/utils"
-	"arakne/internal/platform/windows"
-	"arakne/internal/platform/linux"
 	"arakne/internal/platform/darwin"
+	"arakne/internal/platform/linux"
+	"arakne/internal/platform/windows"
+	"arakne/internal/utils"
 )
 
 const banner = `
@@ -37,7 +37,7 @@ func main() {
 	flag.Parse()
 
 	if *help {
-		fmt.Println(banner)
+		fmt.Print(banner)
 		flag.PrintDefaults()
 		return
 	}
@@ -45,8 +45,8 @@ func main() {
 	remediator = core.NewRemediationManager(*nuke)
 
 	clearScreen()
-	fmt.Println(banner)
-	
+	fmt.Print(banner)
+
 	// 1. Initial Admin Check
 	checkAdminPrivileges()
 
@@ -55,10 +55,18 @@ func main() {
 	checkAndLoadDrivers(runtime.GOOS)
 	time.Sleep(1 * time.Second)
 
-	// 3. Main Loop
+	// 3. Enable Self-Defense (Protect our own process)
+	if runtime.GOOS == "windows" {
+		err := EnableSelfDefense()
+		if err != nil {
+			fmt.Println("[!] Self-Defense could not be enabled (driver may not be loaded)")
+		}
+	}
+
+	// 4. Main Loop
 	for {
 		clearScreen()
-		fmt.Println(banner)
+		fmt.Print(banner)
 		fmt.Println("\nSelect Operation Mode:")
 		fmt.Println("1. Windows Module (Heavy Artillery)")
 		fmt.Println("2. Linux Module (The Hunter)")
@@ -98,11 +106,24 @@ func handleOSMenu(osType string) {
 	for {
 		clearScreen()
 		fmt.Printf(":: Arakne > %s Mode ::\n\n", strings.Title(osType))
-		fmt.Println("1. Quick Scan (Logs & Basic)")
-		fmt.Println("2. Deep Dive (MFT/Kernel/Memory)")
-		fmt.Println("3. Remediation (Nuke/Clean)")
-		fmt.Println("4. Back")
-		fmt.Print("\nSelect Option: ")
+		fmt.Println("=== SCANNING ===")
+		fmt.Println("1. Quick Scan (Browser/Logs/Drivers)")
+		fmt.Println("2. Deep Dive (MFT/Memory/UEFI)")
+		fmt.Println("3. YARA Scan")
+		fmt.Println("\n=== REMEDIATION ===")
+		fmt.Println("4. Kill Process (Kernel Mode)")
+		fmt.Println("5. Quarantine File")
+		fmt.Println("\n=== CONFIGURATION ===")
+		fmt.Println("6. Whitelist Management")
+		fmt.Println("7. Network Killswitch (WFP)")
+		fmt.Println("\n=== EVIDENCE & REPORTING ===")
+		fmt.Println("8. View Evidence Bag")
+		fmt.Println("9. Seal Evidence (ZIP)")
+		fmt.Println("10. Generate Report (JSON/HTML)")
+		fmt.Println("\n=== DANGER ZONE ===")
+		fmt.Println("11. NUKE MODE (Toggle)")
+		fmt.Println("\n12. Back to Main Menu")
+		fmt.Print("\nSelect Option [1-12]: ")
 
 		choice := readInput()
 
@@ -112,16 +133,35 @@ func handleOSMenu(osType string) {
 		case "2":
 			runTask(osType, "Deep Dive", true)
 		case "3":
-			runTask(osType, "Remediation", true)
+			runTask(osType, "YARA Scan", false)
 		case "4":
+			runProcessKiller()
+		case "5":
+			runQuarantine()
+		case "6":
+			runWhitelistManager()
+		case "7":
+			runNetworkKillswitch()
+		case "8":
+			viewEvidenceBag()
+		case "9":
+			sealEvidenceBag()
+		case "10":
+			generateReport()
+		case "11":
+			runNukeMode()
+		case "12":
 			return
+		default:
+			fmt.Println("Invalid selection.")
+			time.Sleep(1 * time.Second)
 		}
 	}
 }
 
 func runTask(osType, taskName string, requireElevated bool) {
 	fmt.Printf("\n[*] Preparing to run: %s (%s)...\n", taskName, osType)
-	
+
 	if requireElevated && !utils.IsAdmin() {
 		fmt.Println("[!] ERROR: This task requires Administrator/Root privileges.")
 		fmt.Println("    Please restart Arakne with elevated permissions.")
@@ -129,7 +169,7 @@ func runTask(osType, taskName string, requireElevated bool) {
 		return
 	}
 
-	fmt.Println("[+] Verifying prerequisites...")
+	fmt.Println("[+] Initializing God Mode Kernel Driver...")
 	time.Sleep(500 * time.Millisecond)
 
 	fmt.Print("[?] Ready to start used defined operation. Proceed? (y/n): ")
@@ -140,8 +180,55 @@ func runTask(osType, taskName string, requireElevated bool) {
 	}
 
 	fmt.Println("[+] Executing...")
-	
-	if osType == "windows" && taskName == "Deep Dive" {
+
+	// Initialize Remediation Manager
+	remediationMgr := core.NewRemediationManager(false)
+
+	if osType == "windows" && taskName == "YARA Scan" {
+		fmt.Println("\n[*] Running YARA Scan...")
+		yaraScanner := windows.NewYARAScanner("./rules")
+		yThreats, _ := yaraScanner.Run()
+		for _, t := range yThreats {
+			remediationMgr.HandleThreat(t)
+		}
+		fmt.Printf("\n[+] YARA Scan Complete. Threats found: %d\n", len(yThreats))
+
+	} else if osType == "windows" && taskName == "Quick Scan" {
+		// Quick Scan: Lightweight modules
+		fmt.Println("\n[*] Running Quick Scan (Browser, Logs, Drivers)...")
+
+		// Browser Forensics
+		browserScanner := windows.NewBrowserScanner()
+		bThreats, _ := browserScanner.Run()
+		for _, t := range bThreats {
+			remediationMgr.HandleThreat(t)
+		}
+
+		// Forensics (Event Logs, USN, Prefetch)
+		forensicsScanner := windows.NewForensicsScanner()
+		fThreats, _ := forensicsScanner.Run()
+		for _, t := range fThreats {
+			remediationMgr.HandleThreat(t)
+		}
+
+		// LOLDrivers
+		driverScanner := windows.NewLOLDriverScanner()
+		dThreats, _ := driverScanner.Run()
+		for _, t := range dThreats {
+			remediationMgr.HandleThreat(t)
+		}
+
+		// ETW Sniffer
+		etwScanner := windows.NewETWSniffer()
+		eThreats, _ := etwScanner.Run()
+		for _, t := range eThreats {
+			remediationMgr.HandleThreat(t)
+		}
+
+		fmt.Printf("\n[+] Quick Scan Complete. Total threats found: %d\n",
+			len(bThreats)+len(fThreats)+len(dThreats)+len(eThreats))
+
+	} else if osType == "windows" && taskName == "Deep Dive" {
 		scanner := windows.NewMFTScanner("C:")
 		threats, err := scanner.Run()
 		if err != nil {
@@ -153,22 +240,31 @@ func runTask(osType, taskName string, requireElevated bool) {
 			}
 		}
 
-		// Offline Registry
-		fmt.Println("\n[*] Starting Offline Registry Analysis (Anti-Rootkit)...")
-		regParser, _ := windows.NewRegistryParser([]byte("regf_mock_header"))
+		// Offline Registry Analysis
+		fmt.Println("\n[*] Starting Registry Persistence Analysis...")
+		regParser, _ := windows.NewRegistryParser(nil)
 		regParser.Walk()
-		
+
 		// Guardian Modules
 		fmt.Println("\n[*] Engaging Guardian Modules (Advanced Protection)...")
-		
-		driverScanner := windows.DriverScanner{}
-		driverScanner.ScanLoadedDrivers()
-		
+
+		driverScanner := windows.NewLOLDriverScanner()
+		dThreats, _ := driverScanner.Run()
+		for _, t := range dThreats {
+			remediationMgr.HandleThreat(t)
+		}
+
 		memScanner := windows.MemoryScanner{}
-		memScanner.ScanProcesses()
-		
-		uefiScanner := windows.UEFIScanner{}
-		uefiScanner.ScanEFI()
+		mThreats, _ := memScanner.Run()
+		for _, t := range mThreats {
+			remediationMgr.HandleThreat(t)
+		}
+
+		uefiScanner := windows.NewUEFIScanner()
+		uThreats, _ := uefiScanner.Run()
+		for _, t := range uThreats {
+			remediationMgr.HandleThreat(t)
+		}
 
 		// ShimCache
 		shimParser := windows.ShimCacheParser{}
@@ -182,7 +278,7 @@ func runTask(osType, taskName string, requireElevated bool) {
 		} else {
 			fmt.Printf("[+] Linux Scan Complete. Found %d threats.\n", len(threats))
 		}
-		
+
 		// Doomsday Module: Memfd Hunter
 		memfdScanner := linux.NewMemfdHunter()
 		threats2, _ := memfdScanner.Run()
@@ -200,8 +296,8 @@ func runTask(osType, taskName string, requireElevated bool) {
 			fmt.Printf("[+] macOS Scan Complete. Found %d threats.\n", len(threats))
 		}
 	} else {
-		// Mock for other modes
-		time.Sleep(2 * time.Second) 
+		// Unknown OS/Task combination
+		fmt.Printf("[!] No handler for %s on %s\n", taskName, osType)
 	}
 
 	fmt.Println("[+] Task completed successfully.")
@@ -225,20 +321,22 @@ func checkAndLoadDrivers(osName string) {
 	case "windows":
 		driverName = "arakne_wfp.sys"
 		fmt.Printf("[*] Auto-Loading Driver: %s\n", driverName)
-		
+
 		loader := windows.NewDriverLoader(driverName)
 		err := loader.Load()
 		if err != nil {
 			fmt.Printf("[-] Driver Load Failed: %v\n", err)
 			fmt.Println("    [NOTE] To enable Kernel Mode, place 'arakne_wfp.sys' in this directory.")
 			fmt.Println("           If you don't have it, Arakne will run in User Mode (Standard).")
+		} else {
+			fmt.Println("[+] Driver Communication Established.")
 		}
 		return
 
 	case "linux":
 		driverName = "arakne_probe.ko"
 	case "darwin":
-		driverName = "arakne_kext" 
+		driverName = "arakne_kext"
 	}
 
 	fmt.Printf("[*] Checking for specific kernel driver: %s...\n", driverName)

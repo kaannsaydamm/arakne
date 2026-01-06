@@ -1,85 +1,246 @@
 package windows
 
 import (
+	"arakne/internal/core"
 	"fmt"
+	"strings"
+
+	"golang.org/x/sys/windows/registry"
 )
 
-// Registry Hive Header (4KB)
-type HiveHeader struct {
-	Signature uint32 // "regf"
-	Seq1      uint32
-	Seq2      uint32
-	LastWrite uint64
-	Major     uint32
-	Minor     uint32
-	FileType  uint32
-	Format    uint32
-	RootCell  uint32 // Offset to root key
-	Length    uint32
-	cluster   uint32
-	// ... checksum and padding
-}
-
-// HBIN Header (Bin)
-type BinHeader struct {
-	Signature uint32 // "hbin"
-	Offset    uint32
-	Size      uint32
-	Reserved  [2]uint32
-	Timestamp uint64
-	Spare     uint32
-}
-
-// Cell Header (Generic)
-// If size < 0, it is allocated. If > 0, it is free.
-type CellHeader struct {
-	Size int32
-}
-
-// NK Record (Key Node)
-// Signature: 0x6B6E ("nk")
-type NKRecord struct {
-	Signature        uint16
-	Flags            uint16
-	LastWrite        uint64
-	ParentCell       uint32
-	SubkeyCount      uint32
-	VolatileSubKeys  uint32
-	SubkeysListCell  uint32
-	VolatileListCell uint32
-	ValueCount       uint32
-	ValuesListCell   uint32
-	SecurityCell     uint32
-	ClassCell        uint32
-	MaxSubkeyName    uint32
-	MaxValName       uint32
-	MaxValData       uint32
-	KeyNameLen       uint16
-	ClassNameLen     uint16
-	// Name follows
-}
-
-// RegistryParser handles the raw parsing of Hive bytes
+// RegistryParser analyzes registry for persistence and threats
 type RegistryParser struct {
-	Content []byte
+	Threats []core.Threat
 }
 
 func NewRegistryParser(data []byte) (*RegistryParser, error) {
-	if len(data) < 4096 {
-		return nil, fmt.Errorf("data too short for registry hive")
-	}
-	if string(data[0:4]) != "regf" {
-		return nil, fmt.Errorf("invalid hive signature")
-	}
-	return &RegistryParser{Content: data}, nil
+	// Data parameter kept for offline hive support (future)
+	return &RegistryParser{}, nil
 }
 
-// Walk iterates through the hive (impl simplified for now)
+func (r *RegistryParser) Name() string {
+	return "Registry Persistence Analyzer"
+}
+
 func (r *RegistryParser) Walk() {
-	fmt.Println("[*] parsing Registry Hive Header...")
-	// hbin starts at 4096 (0x1000)
-	// We would traverse cells here.
-	
-	// Placeholder logic demonstrating robustness
-	fmt.Println("[+] Registry Header verified (regf). Ready for deep cell traversal.")
+	fmt.Println("[*] Scanning Registry for persistence mechanisms...")
+
+	r.Threats = []core.Threat{}
+
+	// Check all Run keys
+	r.checkRunKeys()
+
+	// Check Services
+	r.checkServices()
+
+	// Check Scheduled Tasks (via registry)
+	r.checkScheduledTasks()
+
+	// Check AppInit_DLLs
+	r.checkAppInitDLLs()
+
+	// Check Image File Execution Options (debugger hijack)
+	r.checkIFEO()
+
+	// Check WMI persistence
+	r.checkWMI()
+
+	fmt.Printf("[+] Registry scan complete. Found %d persistence mechanisms.\n", len(r.Threats))
+}
+
+func (r *RegistryParser) checkRunKeys() {
+	runKeys := []struct {
+		root registry.Key
+		path string
+		name string
+	}{
+		{registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows\CurrentVersion\Run`, "HKLM Run"},
+		{registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce`, "HKLM RunOnce"},
+		{registry.CURRENT_USER, `SOFTWARE\Microsoft\Windows\CurrentVersion\Run`, "HKCU Run"},
+		{registry.CURRENT_USER, `SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce`, "HKCU RunOnce"},
+		{registry.LOCAL_MACHINE, `SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run`, "HKLM Run (WOW64)"},
+	}
+
+	for _, rk := range runKeys {
+		key, err := registry.OpenKey(rk.root, rk.path, registry.QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+
+		names, _ := key.ReadValueNames(-1)
+		for _, name := range names {
+			val, _, err := key.GetStringValue(name)
+			if err != nil {
+				continue
+			}
+
+			// Check for suspicious entries
+			lower := strings.ToLower(val)
+			suspicious := false
+			reason := ""
+
+			susPatterns := map[string]string{
+				"\\temp\\":        "Runs from Temp directory",
+				"\\appdata\\":     "Runs from AppData",
+				"powershell":      "PowerShell in Run key",
+				"cmd /c":          "CMD execution",
+				"mshta":           "MSHTA execution",
+				"wscript":         "WSH script",
+				"cscript":         "CScript execution",
+				"regsvr32 /s /n":  "Regsvr32 bypass",
+				"rundll32":        "Rundll32 execution",
+				"\\public\\":      "Runs from Public folder",
+				"\\programdata\\": "Runs from ProgramData",
+			}
+
+			for pattern, desc := range susPatterns {
+				if strings.Contains(lower, pattern) {
+					suspicious = true
+					reason = desc
+					break
+				}
+			}
+
+			if suspicious {
+				fmt.Printf("    [!] Suspicious: %s\\%s = %s\n", rk.name, name, val)
+				r.Threats = append(r.Threats, core.Threat{
+					Name:        "Suspicious Auto-Run Entry",
+					Description: fmt.Sprintf("%s: %s", reason, name),
+					Level:       core.LevelHigh,
+					Details: map[string]interface{}{
+						"key":   rk.name,
+						"name":  name,
+						"value": val,
+					},
+				})
+			}
+		}
+		key.Close()
+	}
+}
+
+func (r *RegistryParser) checkServices() {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Services`, registry.ENUMERATE_SUB_KEYS)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	services, _ := key.ReadSubKeyNames(-1)
+
+	for _, svc := range services {
+		svcKey, err := registry.OpenKey(registry.LOCAL_MACHINE,
+			`SYSTEM\CurrentControlSet\Services\`+svc, registry.QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+
+		imagePath, _, _ := svcKey.GetStringValue("ImagePath")
+		lower := strings.ToLower(imagePath)
+
+		// Check for suspicious service paths
+		if strings.Contains(lower, "\\temp\\") ||
+			strings.Contains(lower, "\\appdata\\") ||
+			strings.Contains(lower, "\\public\\") ||
+			strings.Contains(lower, "cmd.exe") ||
+			strings.Contains(lower, "powershell") {
+			r.Threats = append(r.Threats, core.Threat{
+				Name:        "Suspicious Service",
+				Description: fmt.Sprintf("Service '%s' has suspicious path", svc),
+				Level:       core.LevelHigh,
+				Details: map[string]interface{}{
+					"service":   svc,
+					"imagePath": imagePath,
+				},
+			})
+		}
+		svcKey.Close()
+	}
+}
+
+func (r *RegistryParser) checkScheduledTasks() {
+	// Check task cache in registry
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tasks`,
+		registry.ENUMERATE_SUB_KEYS)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	tasks, _ := key.ReadSubKeyNames(-1)
+	fmt.Printf("    [-] Found %d scheduled task GUIDs in registry.\n", len(tasks))
+}
+
+func (r *RegistryParser) checkAppInitDLLs() {
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SOFTWARE\Microsoft\Windows NT\CurrentVersion\Windows`, registry.QUERY_VALUE)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	dlls, _, _ := key.GetStringValue("AppInit_DLLs")
+	if dlls != "" && dlls != " " {
+		r.Threats = append(r.Threats, core.Threat{
+			Name:        "AppInit_DLLs Set",
+			Description: "DLLs injected into every process via AppInit",
+			Level:       core.LevelCritical,
+			Details:     map[string]interface{}{"dlls": dlls},
+		})
+	}
+
+	loadAppInit, _, _ := key.GetIntegerValue("LoadAppInit_DLLs")
+	if loadAppInit == 1 && dlls != "" {
+		fmt.Println("    [!] WARNING: AppInit_DLLs injection is ACTIVE")
+	}
+}
+
+func (r *RegistryParser) checkIFEO() {
+	// Image File Execution Options - debugger hijacking
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options`,
+		registry.ENUMERATE_SUB_KEYS)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	exes, _ := key.ReadSubKeyNames(-1)
+	for _, exe := range exes {
+		exeKey, err := registry.OpenKey(registry.LOCAL_MACHINE,
+			`SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\`+exe,
+			registry.QUERY_VALUE)
+		if err != nil {
+			continue
+		}
+
+		debugger, _, _ := exeKey.GetStringValue("Debugger")
+		if debugger != "" {
+			r.Threats = append(r.Threats, core.Threat{
+				Name:        "IFEO Debugger Hijack",
+				Description: fmt.Sprintf("%s redirected to: %s", exe, debugger),
+				Level:       core.LevelCritical,
+				Details: map[string]interface{}{
+					"target":   exe,
+					"debugger": debugger,
+				},
+			})
+		}
+		exeKey.Close()
+	}
+}
+
+func (r *RegistryParser) checkWMI() {
+	// WMI permanent event subscriptions
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SOFTWARE\Microsoft\Wbem`, registry.QUERY_VALUE)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	// WMI persistence usually requires WMI queries, but we can check for artifacts
+	fmt.Println("    [-] WMI persistence check requires WMI queries (use wmic)")
 }

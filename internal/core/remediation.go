@@ -11,9 +11,9 @@ import (
 
 // RemediationManager handles the "Secure First, Ask Later" workflow
 type RemediationManager struct {
-	Jail     *QuarantineJail
-	Bag      *BagHandler
-	LogFile  *os.File
+	Jail       *QuarantineJail
+	Bag        *BagHandler
+	LogFile    *os.File
 	Aggressive bool // Nuke Mode
 }
 
@@ -21,7 +21,7 @@ func NewRemediationManager(aggressive bool) *RemediationManager {
 	// Initialize Jail and Evidence Bag
 	jail := NewQuarantineJail("")
 	bag := NewBagHandler("CASE_" + time.Now().Format("20060102"))
-	
+
 	return &RemediationManager{
 		Jail:       jail,
 		Bag:        bag,
@@ -46,31 +46,29 @@ func (r *RemediationManager) HandleThreat(t Threat) {
 	// 3. User Decision (Unless Nuke Mode)
 	if r.Aggressive {
 		fmt.Println("[NUKE] Threat annihilated. No questions asked.")
-		// In nuke mode, we might delete the jail file too? 
-		// "Nuke" usually means remove from system.
-		// If it's in jail, it's effectively removed.
-		return 
+		return
 	}
 
 	// Normal Mode: Ask for final disposition
 	fmt.Print("\n[?] Threat is JAILED and SECURED. \n    Evidence saved in Bag. \n    Delete permanently? (y/n/restore): ")
 	choice := r.readInput()
-	
-	if choice == "y" {
+
+	switch choice {
+	case "y":
 		fmt.Println("[*] Deleting permanently...")
 		if quarantinedPath != "" {
 			os.Remove(quarantinedPath)
 		}
-	} else if choice == "restore" {
+	case "restore":
 		fmt.Println("[!] Restore not implemented in Alpha. File remains in Jail.")
-	} else {
+	default:
 		fmt.Println("[*] File kept in Quarantine Jail.")
 	}
 }
 
 func (r *RemediationManager) immobilize(t Threat) {
 	fmt.Println("    [Action] Immobilizing Threat...")
-	
+
 	// If it's a process -> Suspend & Kill Network
 	if pid, ok := t.Details["PID"]; ok {
 		fmt.Printf("    [Process] Suspending PID %v...\n", pid)
@@ -90,16 +88,16 @@ func (r *RemediationManager) quarantine(t Threat) (string, error) {
 	if path, ok := t.Details["FilePath"]; ok {
 		pStr := fmt.Sprintf("%v", path)
 		fmt.Printf("    [Jail] Locking up %s...\n", pStr)
-		
+
 		// Lockup moves it to Jail (effectively deleting original)
 		err := r.Jail.Lockup(pStr)
 		if err != nil {
 			return "", err
 		}
-		
+
 		// Return the new path in jail (simplified)
 		_, pName := filepath.Split(pStr) // Pseudo path matching Lockup logic
-		return r.Jail.JailPath + "/" + time.Now().Format("20060102_150405") + "_" + pName + ".quarantine", nil 
+		return r.Jail.JailPath + "/" + time.Now().Format("20060102_150405") + "_" + pName + ".quarantine", nil
 	}
 	return "", nil
 }

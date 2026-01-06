@@ -1,18 +1,19 @@
 package windows
 
 import (
+	"arakne/internal/core"
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"syscall"
-	"arakne/internal/core"
 )
 
 // MFTScanner implements the Scanner interface for NTFS Master File Table analysis
 type MFTScanner struct {
-	DriveLetter string
-	handle      syscall.Handle
-	mftOffset   int64
-	recordSize  uint32
+	DriveLetter     string
+	handle          syscall.Handle
+	mftOffset       int64
+	recordSize      uint32
 	bytesPerCluster uint32
 }
 
@@ -29,19 +30,19 @@ func (m *MFTScanner) Name() string {
 // NTFS Boot Sector Structure (Partial)
 type BootSector struct {
 	JumpInstruction      [3]byte
-	OEMID               [8]byte
-	BytesPerSector      uint16
-	SectorsPerCluster   uint8
-	ReservedSectors     uint16
-	MediaDescriptor     uint8
-	test                uint16
-	SectorsPerTrack     uint16
-	NumberofHeads       uint16
-	HiddenSectors       uint32
-	TotalSectors        uint64
-	MFTClusterNumber    uint64
+	OEMID                [8]byte
+	BytesPerSector       uint16
+	SectorsPerCluster    uint8
+	ReservedSectors      uint16
+	MediaDescriptor      uint8
+	test                 uint16
+	SectorsPerTrack      uint16
+	NumberofHeads        uint16
+	HiddenSectors        uint32
+	TotalSectors         uint64
+	MFTClusterNumber     uint64
 	MFTMirrClusterNumber uint64
-	ClustersPerRecord   int8
+	ClustersPerRecord    int8
 }
 
 // MFT Record Header
@@ -63,22 +64,22 @@ type MFTFileRecordHeader struct {
 
 // MFT Attribute Header (Common)
 type AttributeHeader struct {
-	TypeCode        uint32
-	Length          uint32
-	NonResident     uint8
-	NameLength      uint8
-	NameOffset      uint16
-	Flags           uint16
-	AttributeID     uint16
+	TypeCode    uint32
+	Length      uint32
+	NonResident uint8
+	NameLength  uint8
+	NameOffset  uint16
+	Flags       uint16
+	AttributeID uint16
 }
 
 // Resident Attribute Header
 type ResidentAttribute struct {
 	AttributeHeader
-	ContentSize     uint32
-	ContentOffset   uint16
-	IndexedFlag     uint8
-	Padding         uint8
+	ContentSize   uint32
+	ContentOffset uint16
+	IndexedFlag   uint8
+	Padding       uint8
 }
 
 // Non-Resident Attribute Header
@@ -104,6 +105,19 @@ func (m *MFTScanner) Run() ([]core.Threat, error) {
 	volumePath := fmt.Sprintf("\\\\.\\%s", m.DriveLetter) // e.g., \\.\C:
 	fmt.Printf("[*] Opening raw volume: %s\n", volumePath)
 
+	// 0. Try VSS for System Drive to bypass locks
+	if strings.EqualFold(m.DriveLetter, "C:") {
+		vss := NewVSSHelper("C:")
+		shadowPath, err := vss.CreateShadowCopy()
+		if err == nil {
+			volumePath = shadowPath // Use shadow copy instead of live volume
+			// Register cleanup
+			defer vss.DeleteShadowCopies()
+		} else {
+			fmt.Printf("[-] VSS Failed: %v. Trying live volume (expect locks)...\n", err)
+		}
+	}
+
 	handle, err := OpenRawVolume(volumePath)
 	if err != nil {
 		fmt.Printf("[-] Failed to open volume: %v (Are you Admin?)\n", err)
@@ -120,14 +134,14 @@ func (m *MFTScanner) Run() ([]core.Threat, error) {
 
 	var bootSector BootSector
 	// Determine formatting manually or use binary.Read
-	// Be careful with struct packing/alignment in Go. 
+	// Be careful with struct packing/alignment in Go.
 	// For simplicity, we parse fields manually from the buffer to avoid padding issues.
-	
+
 	bootSector.BytesPerSector = binary.LittleEndian.Uint16(bootBuffer[11:13])
 	bootSector.SectorsPerCluster = bootBuffer[13]
 	bootSector.TotalSectors = binary.LittleEndian.Uint64(bootBuffer[40:48]) // For NTFS, this might be at offset 0x28
 	bootSector.MFTClusterNumber = binary.LittleEndian.Uint64(bootBuffer[48:56])
-	
+
 	// Quick Check for NTFS signature 'NTFS    ' at offset 3
 	if string(bootBuffer[3:7]) != "NTFS" {
 		return nil, fmt.Errorf("volume is not NTFS")
@@ -146,7 +160,7 @@ func (m *MFTScanner) Run() ([]core.Threat, error) {
 	m.bytesPerCluster = uint32(clusterSize)
 
 	fmt.Println("[+] Successfully connected to $MFT.")
-	
+
 	// Example: Read Record 0 ($MFT)
 	record0, err := m.ReadMFTRecord(0)
 	if err != nil {
@@ -164,7 +178,7 @@ func (m *MFTScanner) ReadMFTRecord(index uint64) ([]byte, error) {
 	}
 
 	offset := m.mftOffset + int64(index)*int64(m.recordSize)
-	
+
 	_, err := SetFilePointer(m.handle, offset, 0) // FILE_BEGIN
 	if err != nil {
 		return nil, err
@@ -175,90 +189,101 @@ func (m *MFTScanner) ReadMFTRecord(index uint64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Basic validation
 	if string(buffer[:4]) != "FILE" {
 		// Valid records start with FILE. Empty ones might be 0000.
 		// return nil, fmt.Errorf("invalid record signature at index %d", index)
 	}
-	
+
 	return buffer, nil
 }
 
 func (m *MFTScanner) ParseRecord(recordBuffer []byte) {
-	fmt.Println("--- MFT Record Dump ---")
+	// Analysis State
+	var stdCreateTime uint64
+	var fnCreateTime uint64
+	var fileName string
+	var dataAttributeCount int
+	var hasAlternateDataStream bool
 
-	fmt.Println("[+] Successfully read MFT Record 0 ($MFT). System is reachable via RAW access.")
-
-	// Parse Attributes
-	attrOffset := binary.LittleEndian.Uint16(recordBuffer[20:22]) // AttributeOffset
-	fmt.Printf("[*] First Attribute Offset: %d\n", attrOffset)
+	attrOffset := binary.LittleEndian.Uint16(recordBuffer[20:22])
 
 	for int(attrOffset)+8 < len(recordBuffer) {
 		typeCode := binary.LittleEndian.Uint32(recordBuffer[attrOffset : attrOffset+4])
 		if typeCode == 0xFFFFFFFF {
-			break // End of attributes
+			break
 		}
-		
 		length := binary.LittleEndian.Uint32(recordBuffer[attrOffset+4 : attrOffset+8])
 		if length == 0 {
-			break // Prevention of infinite loop
+			break
 		}
 
-		fmt.Printf("   -> Found Attribute: Type 0x%X, Length %d\n", typeCode, length)
-		
-		// Handle Specific Attributes
+		// Handle Attributes
+		if typeCode == AttrStandardInformation {
+			// Offset 24 (usually) -> Creation Time
+			resOffset := binary.LittleEndian.Uint16(recordBuffer[attrOffset+20 : attrOffset+22])
+			bodyOffset := int(attrOffset) + int(resOffset)
+			if bodyOffset+8 < len(recordBuffer) {
+				stdCreateTime = binary.LittleEndian.Uint64(recordBuffer[bodyOffset : bodyOffset+8])
+			}
+		}
+
 		if typeCode == AttrFileName {
-			// Parse Name (Resident)
-			// Offset to content: 20 + 2 = 22 (usually)
-			// Assuming Resident, header is 24 bytes total roughly.
-			// Let's rely on standard offset logic for Resident Header.
 			resOffset := binary.LittleEndian.Uint16(recordBuffer[attrOffset+20 : attrOffset+22])
 			nameContentOffset := int(attrOffset) + int(resOffset)
-			
+
 			if nameContentOffset < len(recordBuffer) {
-				// $FILE_NAME struct: ParentRef(8) + Creation(8)... + NameLen(1) + NameType(1) + Name
+				// $FILE_NAME: Parent(8) + Creation(8) ...
+				fnCreateTime = binary.LittleEndian.Uint64(recordBuffer[nameContentOffset+8 : nameContentOffset+16])
+
 				nameLen := recordBuffer[nameContentOffset+64]
-				
-				// Basic UTF16LE decoding (just taking every 2nd byte for ASCII for now)
 				nameBytes := recordBuffer[nameContentOffset+66 : nameContentOffset+66+int(nameLen)*2]
+
 				readableName := ""
-				for i := 0; i < len(nameBytes); i+=2 {
+				for i := 0; i < len(nameBytes); i += 2 {
 					readableName += string(nameBytes[i])
 				}
-				fmt.Printf("      [NAME] %s\n", readableName)
+				fileName = readableName
 			}
 		}
 
 		if typeCode == AttrData {
-			nonResident := recordBuffer[attrOffset+8]
-			if nonResident == 0 {
-				fmt.Println("      [$DATA] Resident (Content inside MFT)")
-			} else {
-				// Runs are at runListOffset
-				runListOffset := binary.LittleEndian.Uint16(recordBuffer[attrOffset+32 : attrOffset+34])
-				fmt.Printf("      [$DATA] Non-Resident. Runs @ %d\n", runListOffset)
-				
-				runListStart := int(attrOffset) + int(runListOffset)
-				if runListStart < len(recordBuffer)  {
-					runListBuffer := recordBuffer[runListStart:] 
-					runs, err := parseRunList(runListBuffer)
-					if err == nil {
-						fmt.Printf("      [RUNS] Decoded %d Fragments:\n", len(runs))
-						for i, r := range runs {
-							fmt.Printf("        %d. LCN: %d, Len: %d Clusters\n", i+1, r.LCN, r.Length)
-						}
-					}
-				}
+			dataAttributeCount++
+			// Determine if ADS: NameLength > 0
+			nameLength := recordBuffer[attrOffset+9]
+			if nameLength > 0 {
+				hasAlternateDataStream = true
+				fmt.Printf("      [ALERT] Alternate Data Stream Detected inside MFT! Type: $DATA, NameLen: %d\n", nameLength)
 			}
 		}
 
 		attrOffset += uint16(length)
 	}
 
-	// ...
-	// End of function
+	// Post-Parse Analysis
+	if fileName != "" {
+		fmt.Printf("   -> File: %s\n", fileName)
 
+		// 1. Timestomping Detection
+		// If $STD Creation is significantly different from $FN Creation
+		var diff int64
+		if stdCreateTime > fnCreateTime {
+			diff = int64(stdCreateTime - fnCreateTime)
+		} else {
+			diff = int64(fnCreateTime - stdCreateTime)
+		}
+
+		// 10,000,000 ticks = 1 second.
+		// If diff > 1 hour
+		if diff > 3600*10000000 {
+			fmt.Printf("      [THREAT] Timestomping Detected on %s! $STD vs $FN mismatch.\n", fileName)
+		}
+
+		if hasAlternateDataStream {
+			fmt.Printf("      [THREAT] ADS Hidden Payload Confirmed on: %s\n", fileName)
+		}
+	}
 }
 
 // Decode Data Runs (Non-Resident Attribute mapping)
@@ -305,7 +330,7 @@ func parseRunList(runList []byte) ([]DataRun, error) {
 
 type DataRun struct {
 	StartVCN uint64
-	LCN      int64 // Logical Cluster Number (on volume)
+	LCN      int64  // Logical Cluster Number (on volume)
 	Length   uint64 // Number of clusters
 }
 
@@ -323,7 +348,7 @@ func readVarIntSigned(b []byte) int64 {
 	for i := 0; i < len(b); i++ {
 		val |= int64(b[i]) << (uint(i) * 8)
 	}
-	
+
 	// If the highest bit of the last byte is set, it's negative
 	if len(b) > 0 && (b[len(b)-1]&0x80 != 0) {
 		mask := int64(-1) << (uint(len(b)) * 8)

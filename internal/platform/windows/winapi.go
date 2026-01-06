@@ -6,15 +6,16 @@ import (
 )
 
 var (
-	modkernel32 = syscall.NewLazyDLL("kernel32.dll")
-	procCreateFileW = modkernel32.NewProc("CreateFileW")
-	procReadFile    = modkernel32.NewProc("ReadFile")
-	procCloseHandle = modkernel32.NewProc("CloseHandle")
+	modkernel32          = syscall.NewLazyDLL("kernel32.dll")
+	procCreateFileW      = modkernel32.NewProc("CreateFileW")
+	procReadFile         = modkernel32.NewProc("ReadFile")
+	procCloseHandle      = modkernel32.NewProc("CloseHandle")
 	procSetFilePointerEx = modkernel32.NewProc("SetFilePointerEx")
 )
 
 const (
 	GENERIC_READ          = 0x80000000
+	GENERIC_WRITE         = 0x40000000
 	FILE_SHARE_READ       = 0x00000001
 	FILE_SHARE_WRITE      = 0x00000002
 	OPEN_EXISTING         = 3
@@ -82,7 +83,7 @@ func SetFilePointer(handle syscall.Handle, offset int64, moveMethod uint32) (int
 	if ret == 0 {
 		return 0, err
 	}
-	// ... existing code ...
+
 	return newOffset, nil
 }
 
@@ -96,8 +97,8 @@ var (
 )
 
 const (
-	TH32CS_SNAPPROCESS = 0x00000002
-	PROCESS_TERMINATE  = 0x0001
+	TH32CS_SNAPPROCESS        = 0x00000002
+	PROCESS_TERMINATE         = 0x0001
 	PROCESS_QUERY_INFORMATION = 0x0400
 )
 
@@ -114,24 +115,38 @@ type PROCESSENTRY32 struct {
 	ExeFile           [260]uint16
 }
 
-func CreateToolhelp32Snapshot(flags uint32, pid uint32) (syscall.Handle, error) {
-	ret, _, err := procCreateToolhelp32Snapshot.Call(uintptr(flags), uintptr(pid))
-	if ret == INVALID_HANDLE_VALUE || ret == 0 {
-		return 0, err
+type ProcessInfo struct {
+	PID  uint32
+	Name string
+}
+
+// GetProcessList is a helper to return all active PIDs
+func GetProcessList() ([]ProcessInfo, error) {
+	snapshot, _, err := procCreateToolhelp32Snapshot.Call(uintptr(TH32CS_SNAPPROCESS), 0)
+	if snapshot == INVALID_HANDLE_VALUE || snapshot == 0 {
+		return nil, err
 	}
-	return syscall.Handle(ret), nil
-}
+	defer syscall.CloseHandle(syscall.Handle(snapshot))
 
-func Process32First(snapshot syscall.Handle, pe *PROCESSENTRY32) bool {
-	pe.Size = uint32(unsafe.Sizeof(*pe))
-	ret, _, _ := procProcess32First.Call(uintptr(snapshot), uintptr(unsafe.Pointer(pe)))
-	return ret != 0
-}
+	var pe PROCESSENTRY32
+	pe.Size = uint32(unsafe.Sizeof(pe))
 
-func Process32Next(snapshot syscall.Handle, pe *PROCESSENTRY32) bool {
-	pe.Size = uint32(unsafe.Sizeof(*pe))
-	ret, _, _ := procProcess32Next.Call(uintptr(snapshot), uintptr(unsafe.Pointer(pe)))
-	return ret != 0
+	ret, _, _ := procProcess32First.Call(snapshot, uintptr(unsafe.Pointer(&pe)))
+	if ret == 0 {
+		return nil, nil // No processes?
+	}
+
+	var procs []ProcessInfo
+	for {
+		name := syscall.UTF16ToString(pe.ExeFile[:])
+		procs = append(procs, ProcessInfo{PID: pe.ProcessID, Name: name})
+
+		ret, _, _ = procProcess32Next.Call(snapshot, uintptr(unsafe.Pointer(&pe)))
+		if ret == 0 {
+			break
+		}
+	}
+	return procs, nil
 }
 
 func OpenProcess(desiredAccess uint32, inheritHandle bool, pid uint32) (syscall.Handle, error) {
@@ -157,7 +172,7 @@ func TerminateProcess(handle syscall.Handle, exitCode uint32) error {
 // --- Service Control Manager API ---
 
 var (
-	modadvapi32 = syscall.NewLazyDLL("advapi32.dll")
+	modadvapi32            = syscall.NewLazyDLL("advapi32.dll")
 	procOpenSCManager      = modadvapi32.NewProc("OpenSCManagerW")
 	procCreateService      = modadvapi32.NewProc("CreateServiceW")
 	procOpenService        = modadvapi32.NewProc("OpenServiceW")
@@ -168,13 +183,13 @@ var (
 const (
 	SC_MANAGER_CREATE_SERVICE = 0x0002
 	SC_MANAGER_CONNECT        = 0x0001
-	
-	SERVICE_KERNEL_DRIVER      = 0x00000001
-	SERVICE_DEMAND_START       = 0x00000003
-	SERVICE_ERROR_NORMAL       = 0x00000001
-	
-	SERVICE_START              = 0x0010
-	SERVICE_ALL_ACCESS         = 0xF01FF
+
+	SERVICE_KERNEL_DRIVER = 0x00000001
+	SERVICE_DEMAND_START  = 0x00000003
+	SERVICE_ERROR_NORMAL  = 0x00000001
+
+	SERVICE_START      = 0x0010
+	SERVICE_ALL_ACCESS = 0xF01FF
 )
 
 func OpenSCManager(machineName *uint16, dbName *uint16, access uint32) (syscall.Handle, error) {
@@ -193,7 +208,7 @@ func CreateService(scm syscall.Handle, serviceName, displayName, binaryPath stri
 	sName, _ := syscall.UTF16PtrFromString(serviceName)
 	dName, _ := syscall.UTF16PtrFromString(displayName)
 	bPath, _ := syscall.UTF16PtrFromString(binaryPath)
-	
+
 	ret, _, err := procCreateService.Call(
 		uintptr(scm),
 		uintptr(unsafe.Pointer(sName)),
@@ -242,4 +257,69 @@ func CloseServiceHandle(handle syscall.Handle) error {
 		return err
 	}
 	return nil
+}
+
+// --- Memory Management API ---
+
+var (
+	procVirtualQueryEx    = modkernel32.NewProc("VirtualQueryEx")
+	procReadProcessMemory = modkernel32.NewProc("ReadProcessMemory")
+)
+
+const (
+	MEM_COMMIT  = 0x1000
+	MEM_RESERVE = 0x2000
+	MEM_PRIVATE = 0x20000
+	MEM_IMAGE   = 0x1000000
+	MEM_MAPPED  = 0x40000
+
+	PAGE_NOACCESS          = 0x01
+	PAGE_READONLY          = 0x02
+	PAGE_READWRITE         = 0x04
+	PAGE_WRITECOPY         = 0x08
+	PAGE_EXECUTE           = 0x10
+	PAGE_EXECUTE_READ      = 0x20
+	PAGE_EXECUTE_READWRITE = 0x40 // RWX (Danger!)
+	PAGE_EXECUTE_WRITECOPY = 0x80
+)
+
+type MEMORY_BASIC_INFORMATION struct {
+	BaseAddress       uintptr
+	AllocationBase    uintptr
+	AllocationProtect uint32
+	PartitionId       uint16
+	RegionSize        uintptr
+	State             uint32
+	Protect           uint32
+	Type              uint32
+}
+
+func VirtualQueryEx(hProcess syscall.Handle, lpAddress uintptr) (MEMORY_BASIC_INFORMATION, error) {
+	var mbi MEMORY_BASIC_INFORMATION
+	ret, _, err := procVirtualQueryEx.Call(
+		uintptr(hProcess),
+		lpAddress,
+		uintptr(unsafe.Pointer(&mbi)),
+		uintptr(unsafe.Sizeof(mbi)),
+	)
+	if ret == 0 {
+		return mbi, err
+	}
+	return mbi, nil
+}
+
+func ReadProcessMemory(hProcess syscall.Handle, lpBaseAddress uintptr, size uintptr) ([]byte, error) {
+	buf := make([]byte, size)
+	var bytesRead uintptr
+	ret, _, err := procReadProcessMemory.Call(
+		uintptr(hProcess),
+		lpBaseAddress,
+		uintptr(unsafe.Pointer(&buf[0])),
+		size,
+		uintptr(unsafe.Pointer(&bytesRead)),
+	)
+	if ret == 0 {
+		return nil, err
+	}
+	return buf, nil
 }
