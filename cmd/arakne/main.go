@@ -110,20 +110,21 @@ func handleOSMenu(osType string) {
 		fmt.Println("1. Quick Scan (Browser/Logs/Drivers)")
 		fmt.Println("2. Deep Dive (MFT/Memory/UEFI)")
 		fmt.Println("3. YARA Scan")
+		fmt.Println("4. COMBOFIX MODE (Nostalgia) ★")
 		fmt.Println("\n=== REMEDIATION ===")
-		fmt.Println("4. Kill Process (Kernel Mode)")
-		fmt.Println("5. Quarantine File")
+		fmt.Println("5. Kill Process (Kernel Mode)")
+		fmt.Println("6. Quarantine File")
 		fmt.Println("\n=== CONFIGURATION ===")
-		fmt.Println("6. Whitelist Management")
-		fmt.Println("7. Network Killswitch (WFP)")
+		fmt.Println("7. Whitelist Management")
+		fmt.Println("8. Network Killswitch (WFP)")
 		fmt.Println("\n=== EVIDENCE & REPORTING ===")
-		fmt.Println("8. View Evidence Bag")
-		fmt.Println("9. Seal Evidence (ZIP)")
-		fmt.Println("10. Generate Report (JSON/HTML)")
+		fmt.Println("9. View Evidence Bag")
+		fmt.Println("10. Seal Evidence (ZIP)")
+		fmt.Println("11. Generate Report (JSON/HTML)")
 		fmt.Println("\n=== DANGER ZONE ===")
-		fmt.Println("11. NUKE MODE (Toggle)")
-		fmt.Println("\n12. Back to Main Menu")
-		fmt.Print("\nSelect Option [1-12]: ")
+		fmt.Println("12. NUKE MODE (Toggle)")
+		fmt.Println("\n13. Back to Main Menu")
+		fmt.Print("\nSelect Option [1-13]: ")
 
 		choice := readInput()
 
@@ -135,22 +136,24 @@ func handleOSMenu(osType string) {
 		case "3":
 			runTask(osType, "YARA Scan", false)
 		case "4":
-			runProcessKiller()
+			runCombofixMode(osType)
 		case "5":
-			runQuarantine()
+			runProcessKiller()
 		case "6":
-			runWhitelistManager()
+			runQuarantine()
 		case "7":
-			runNetworkKillswitch()
+			runWhitelistManager()
 		case "8":
-			viewEvidenceBag()
+			runNetworkKillswitch()
 		case "9":
-			sealEvidenceBag()
+			viewEvidenceBag()
 		case "10":
-			generateReport()
+			sealEvidenceBag()
 		case "11":
-			runNukeMode()
+			generateReport()
 		case "12":
+			runNukeMode()
+		case "13":
 			return
 		default:
 			fmt.Println("Invalid selection.")

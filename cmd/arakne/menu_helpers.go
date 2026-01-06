@@ -220,3 +220,200 @@ func generateReport() {
 	}
 	waitForKey()
 }
+
+// runCombofixMode implements the nostalgic all-in-one scan mode
+// Runs all analysis steps automatically, only prompts for deletion
+func runCombofixMode(_ string) {
+	clearScreen()
+
+	// Combofix ASCII banner
+	combofixBanner := `
+   ██████╗ ██████╗ ███╗   ███╗██████╗  ██████╗ ███████╗██╗██╗  ██╗
+  ██╔════╝██╔═══██╗████╗ ████║██╔══██╗██╔═══██╗██╔════╝██║╚██╗██╔╝
+  ██║     ██║   ██║██╔████╔██║██████╔╝██║   ██║█████╗  ██║ ╚███╔╝ 
+  ██║     ██║   ██║██║╚██╔╝██║██╔══██╗██║   ██║██╔══╝  ██║ ██╔██╗ 
+  ╚██████╗╚██████╔╝██║ ╚═╝ ██║██████╔╝╚██████╔╝██║     ██║██╔╝ ██╗
+   ╚═════╝ ╚═════╝ ╚═╝     ╚═╝╚═════╝  ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝
+                    [ N O S T A L G I A   M O D E ]
+`
+	fmt.Println(combofixBanner)
+	fmt.Println("┌─────────────────────────────────────────────────────────────┐")
+	fmt.Println("│  This will run ALL analysis modules automatically.         │")
+	fmt.Println("│  Sit back and watch. Deletion prompts will appear at end.  │")
+	fmt.Println("└─────────────────────────────────────────────────────────────┘")
+	fmt.Println()
+	fmt.Print("[?] Press ENTER to begin full system analysis...")
+	readInput()
+
+	allThreats := []core.Threat{}
+	startTime := time.Now()
+
+	// Stage 1: Browser Forensics
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println("STAGE 1/8: BROWSER FORENSICS")
+	fmt.Println(strings.Repeat("═", 60))
+	time.Sleep(500 * time.Millisecond)
+	browserScanner := windows.NewBrowserScanner()
+	threats, _ := browserScanner.Run()
+	allThreats = append(allThreats, threats...)
+
+	// Stage 2: Registry Persistence
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println("STAGE 2/8: REGISTRY PERSISTENCE ANALYSIS")
+	fmt.Println(strings.Repeat("═", 60))
+	time.Sleep(500 * time.Millisecond)
+	regParser, _ := windows.NewRegistryParser(nil)
+	regParser.Walk()
+	allThreats = append(allThreats, regParser.Threats...)
+
+	// Stage 3: YARA Scan
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println("STAGE 3/8: YARA MALWARE SCAN")
+	fmt.Println(strings.Repeat("═", 60))
+	time.Sleep(500 * time.Millisecond)
+	yaraScanner := windows.NewYARAScanner("")
+	threats, _ = yaraScanner.Run()
+	allThreats = append(allThreats, threats...)
+
+	// Stage 4: ETW Log Analysis
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println("STAGE 4/8: ETW/EVENT LOG ANALYSIS")
+	fmt.Println(strings.Repeat("═", 60))
+	time.Sleep(500 * time.Millisecond)
+	etwScanner := windows.NewETWSniffer()
+	threats, _ = etwScanner.Run()
+	allThreats = append(allThreats, threats...)
+
+	// Stage 5: Memory Scan
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println("STAGE 5/8: MEMORY SCAN (RWX Regions)")
+	fmt.Println(strings.Repeat("═", 60))
+	time.Sleep(500 * time.Millisecond)
+	memScanner := windows.NewForensicsScanner()
+	threats, _ = memScanner.Run()
+	allThreats = append(allThreats, threats...)
+
+	// Stage 6: UEFI/Boot Check
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println("STAGE 6/8: UEFI/SECURE BOOT CHECK")
+	fmt.Println(strings.Repeat("═", 60))
+	time.Sleep(500 * time.Millisecond)
+	uefiScanner := windows.NewUEFIScanner()
+	threats, _ = uefiScanner.Run()
+	allThreats = append(allThreats, threats...)
+
+	// Stage 7: LOLDrivers
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println("STAGE 7/8: VULNERABLE DRIVER SCAN")
+	fmt.Println(strings.Repeat("═", 60))
+	time.Sleep(500 * time.Millisecond)
+	lolScanner := windows.NewLOLDriverScanner()
+	threats, _ = lolScanner.Run()
+	allThreats = append(allThreats, threats...)
+
+	// Stage 8: Shimcache
+	fmt.Println("\n" + strings.Repeat("═", 60))
+	fmt.Println("STAGE 8/8: SHIMCACHE EXECUTION HISTORY")
+	fmt.Println(strings.Repeat("═", 60))
+	time.Sleep(500 * time.Millisecond)
+	shimScanner := windows.NewShimCacheParser()
+	threats, _ = shimScanner.Run()
+	allThreats = append(allThreats, threats...)
+
+	// Analysis Complete
+	elapsed := time.Since(startTime)
+
+	fmt.Println("\n" + strings.Repeat("█", 60))
+	fmt.Println("                    ANALYSIS COMPLETE")
+	fmt.Println(strings.Repeat("█", 60))
+	fmt.Printf("\n[+] Time elapsed: %v\n", elapsed.Round(time.Second))
+	fmt.Printf("[+] Total threats found: %d\n\n", len(allThreats))
+
+	if len(allThreats) == 0 {
+		fmt.Println("┌─────────────────────────────────────────────────────────────┐")
+		fmt.Println("│                 ✓ NO THREATS DETECTED                       │")
+		fmt.Println("│              Your system appears to be clean!               │")
+		fmt.Println("└─────────────────────────────────────────────────────────────┘")
+		waitForKey()
+		return
+	}
+
+	// Display all threats
+	fmt.Println("┌─────────────────────────────────────────────────────────────┐")
+	fmt.Println("│                    THREAT SUMMARY                           │")
+	fmt.Println("└─────────────────────────────────────────────────────────────┘")
+	fmt.Println()
+
+	for i, threat := range allThreats {
+		levelStr := "INFO"
+		switch threat.Level {
+		case core.LevelCritical:
+			levelStr = "CRITICAL"
+		case core.LevelHigh:
+			levelStr = "HIGH"
+		case core.LevelMedium:
+			levelStr = "MEDIUM"
+		case core.LevelMalicious:
+			levelStr = "MALICIOUS"
+		}
+
+		fmt.Printf("[%d] [%s] %s\n", i+1, levelStr, threat.Name)
+		fmt.Printf("    Description: %s\n", threat.Description)
+		if threat.FilePath != "" {
+			fmt.Printf("    Path: %s\n", threat.FilePath)
+		}
+		fmt.Println()
+	}
+
+	// Prompt for remediation
+	fmt.Println(strings.Repeat("─", 60))
+	fmt.Println("[?] Would you like to quarantine the detected threats?")
+	fmt.Print("    Enter 'y' to review each, 'n' to skip, 'a' for all: ")
+
+	choice := strings.ToLower(readInput())
+
+	if choice == "n" {
+		fmt.Println("\n[*] Skipping remediation. Threats remain on system.")
+		fmt.Println("[*] You can quarantine manually from the main menu.")
+		waitForKey()
+		return
+	}
+
+	if choice == "a" {
+		// Quarantine all
+		fmt.Println("\n[*] Quarantining all threats...")
+		for _, threat := range allThreats {
+			if threat.FilePath != "" {
+				core.NewQuarantineJail("").Lockup(threat.FilePath)
+				fmt.Printf("    [+] Quarantined: %s\n", threat.FilePath)
+			}
+		}
+		fmt.Println("\n[+] All file-based threats have been quarantined.")
+		waitForKey()
+		return
+	}
+
+	// Review each threat
+	fmt.Println("\n[*] Reviewing threats one by one...")
+	for _, threat := range allThreats {
+		if threat.FilePath == "" {
+			continue
+		}
+
+		fmt.Printf("\n[THREAT] %s\n", threat.Name)
+		fmt.Printf("  Path: %s\n", threat.FilePath)
+		fmt.Printf("  Level: %v\n", threat.Level)
+		fmt.Print("  Quarantine this file? (y/n): ")
+
+		if readInput() == "y" {
+			core.NewQuarantineJail("").Lockup(threat.FilePath)
+			fmt.Println("  [+] Quarantined!")
+		} else {
+			fmt.Println("  [-] Skipped.")
+		}
+	}
+
+	fmt.Println("\n[+] Combofix Mode complete!")
+	fmt.Println("[*] Remember to run a normal antivirus scan as well.")
+	waitForKey()
+}
