@@ -96,14 +96,20 @@ func (s *ShimCacheParser) readAppCompatCache() ([]ShimCacheEntry, error) {
 	}
 
 	// Parse header (Windows 10 format)
-	// Signature at offset 0 should be 0x30 (Win10) or 0xEE/0xEF (Win7/8)
+	// Signature at offset 0 varies by Windows version
 	signature := binary.LittleEndian.Uint32(data[0:4])
 
 	switch signature {
-	case 0x30, 0x34: // Windows 10
+	case 0x30, 0x34: // Windows 10/11
 		entries = s.parseWin10Format(data)
-	case 0xEE, 0xEF: // Windows 7/8
+	case 0x80: // Windows 8.0
+		entries = s.parseWin8Format(data)
+	case 0x128: // Windows 8.1 / Server 2012 R2
+		entries = s.parseWin81Format(data)
+	case 0xEE, 0xEF: // Windows 7 / Server 2008 R2
 		entries = s.parseWin7Format(data)
+	case 0xDEADBEEF: // Windows XP (rare)
+		fmt.Println("    [!] Windows XP shimcache format detected (unsupported)")
 	default:
 		fmt.Printf("    [!] Unknown shimcache signature: 0x%X\n", signature)
 	}
@@ -183,6 +189,86 @@ func (s *ShimCacheParser) parseWin7Format(data []byte) []ShimCacheEntry {
 		}
 
 		offset += 32 // Fixed entry size for Win7
+	}
+
+	return entries
+}
+
+// parseWin8Format handles Windows 8.0 shimcache format (header 0x80)
+func (s *ShimCacheParser) parseWin8Format(data []byte) []ShimCacheEntry {
+	entries := []ShimCacheEntry{}
+
+	// Windows 8 format: header is 128 bytes
+	// Entry structure: path offset (4), path length (2), padding (2), data (varies)
+	if len(data) < 132 {
+		return entries
+	}
+
+	numEntries := binary.LittleEndian.Uint32(data[4:8])
+	if numEntries > 1024 {
+		numEntries = 1024
+	}
+
+	offset := 128
+	for i := uint32(0); i < numEntries && offset < len(data)-16; i++ {
+		pathLen := int(binary.LittleEndian.Uint16(data[offset : offset+2]))
+		if pathLen > 520 || pathLen == 0 {
+			offset += 8
+			continue
+		}
+
+		// Path data follows header in Win8
+		if offset+8+pathLen > len(data) {
+			break
+		}
+
+		pathBytes := data[offset+8 : offset+8+pathLen]
+		path := decodeUTF16(pathBytes)
+		if path != "" {
+			entries = append(entries, ShimCacheEntry{Path: path})
+		}
+
+		offset += 8 + pathLen + 8 // path header + path + timestamp
+	}
+
+	return entries
+}
+
+// parseWin81Format handles Windows 8.1/Server 2012 R2 shimcache format (header 0x128)
+func (s *ShimCacheParser) parseWin81Format(data []byte) []ShimCacheEntry {
+	entries := []ShimCacheEntry{}
+
+	// Windows 8.1 format similar to 8.0 but with different header size
+	if len(data) < 152 {
+		return entries
+	}
+
+	numEntries := binary.LittleEndian.Uint32(data[4:8])
+	if numEntries > 1024 {
+		numEntries = 1024
+	}
+
+	offset := 0x80 // Header size for 8.1
+
+	for i := uint32(0); i < numEntries && offset < len(data)-32; i++ {
+		// Entry: signature (4) + unknown (4) + path length (4) + path data + timestamp
+		if offset+12 > len(data) {
+			break
+		}
+
+		pathLen := int(binary.LittleEndian.Uint32(data[offset+8 : offset+12]))
+		if pathLen > 1024 || pathLen == 0 || offset+12+pathLen > len(data) {
+			offset += 16
+			continue
+		}
+
+		pathBytes := data[offset+12 : offset+12+pathLen]
+		path := decodeUTF16(pathBytes)
+		if path != "" {
+			entries = append(entries, ShimCacheEntry{Path: path})
+		}
+
+		offset += 12 + pathLen + 16 // header + path + timestamps
 	}
 
 	return entries
