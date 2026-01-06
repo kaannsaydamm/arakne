@@ -1,0 +1,26 @@
+{
+    "configurations": [
+        {
+            "name": "Arakne Kernel Driver",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "C:/Program Files (x86)/Windows Kits/10/Include/*/km",
+                "C:/Program Files (x86)/Windows Kits/10/Include/*/shared",
+                "C:/Program Files (x86)/Windows Kits/10/Include/*/ucrt",
+                "C:/Program Files (x86)/Windows Kits/10/Include/*/um"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE",
+                "_AMD64_"
+            ],
+            "windowsSdkVersion": "10.0.22000.0",
+            "compilerPath": "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/MSVC/14.29.30133/bin/Hostx64/x64/cl.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-msvc-x64"
+        }
+    ],
+    "version": 4
+}

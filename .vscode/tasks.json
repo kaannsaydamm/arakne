@@ -1,0 +1,21 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Driver (WDK)",
+            "type": "shell",
+            "command": "msbuild",
+            "args": [
+                "${workspaceFolder}/driver/windows/ArakneDriver.sln",
+                "/p:Configuration=Release",
+                "/p:Platform=x64"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile",
+            "detail": "Requires running VS Code from 'Developer Command Prompt for VS'"
+        }
+    ]
+}
