@@ -3,10 +3,70 @@ package windows
 import (
 	"arakne/internal/core"
 	"fmt"
+	"strings"
 )
 
 // MemoryScanner implements the Scanner interface for RAM Forensics
 type MemoryScanner struct{}
+
+// Processes known to legitimately use RWX memory (JIT engines, browsers, etc)
+var jitWhitelist = map[string]bool{
+	// Browsers (V8/SpiderMonkey JIT)
+	"chrome.exe":         true,
+	"msedge.exe":         true,
+	"msedgewebview2.exe": true,
+	"firefox.exe":        true,
+	"zen.exe":            true,
+	"brave.exe":          true,
+	"opera.exe":          true,
+	"vivaldi.exe":        true,
+
+	// .NET / PowerShell (CLR JIT)
+	"powershell.exe": true,
+	"pwsh.exe":       true,
+	"dotnet.exe":     true,
+
+	// Java (HotSpot JIT)
+	"java.exe":  true,
+	"javaw.exe": true,
+
+	// Node.js (V8 JIT)
+	"node.exe": true,
+
+	// GPU / Graphics (shader compilation)
+	"nvidia overlay.exe": true,
+	"amd.exe":            true,
+
+	// Development tools
+	"code.exe":        true,
+	"devenv.exe":      true,
+	"antigravity.exe": true,
+
+	// Common legitimate apps with JIT
+	"discord.exe":        true,
+	"slack.exe":          true,
+	"teams.exe":          true,
+	"spotify.exe":        true,
+	"whatsapp.exe":       true,
+	"telegram.exe":       true,
+	"openvpnconnect.exe": true,
+	"anydesk.exe":        true,
+
+	// System apps that use RWX
+	"wmiprvse.exe":            true,
+	"searchui.exe":            true,
+	"runtimebroker.exe":       true,
+	"backgroundtaskhost.exe":  true,
+	"phoneexperiencehost.exe": true,
+
+	// Vendor tools (MSI, etc)
+	"msi_lan_manager_tool.exe": true,
+	"msi.terminalserver.exe":   true,
+	"omapsvcbroker.exe":        true,
+	"nhnotifsys.exe":           true,
+	"dcv2.exe":                 true,
+	"rvrvpngui.exe":            true,
+}
 
 func (m *MemoryScanner) Name() string {
 	return "Active Memory Hunter"
@@ -34,6 +94,12 @@ func (m *MemoryScanner) ScanProcesses() []core.Threat {
 			continue
 		}
 
+		// Skip whitelisted JIT processes
+		lowerName := strings.ToLower(p.Name)
+		if jitWhitelist[lowerName] {
+			continue
+		}
+
 		t := m.scanPID(p.PID, p.Name)
 		if len(t) > 0 {
 			threats = append(threats, t...)
@@ -55,6 +121,8 @@ func (m *MemoryScanner) scanPID(pid uint32, name string) []core.Threat {
 	defer CloseHandle(handle)
 
 	var address uintptr = 0
+	rwxCount := 0
+	maxRWXReports := 3 // Limit reports per process to avoid spam
 
 	for {
 		mbi, err := VirtualQueryEx(handle, address)
@@ -72,22 +140,31 @@ func (m *MemoryScanner) scanPID(pid uint32, name string) []core.Threat {
 			// Legitimate DLLs are MEM_IMAGE.
 			// Shellcode injection is almost ALWAYS MEM_PRIVATE or MEM_MAPPED.
 			if mbi.Type == MEM_PRIVATE {
-				fmt.Printf("[!] THREAT: RWX Memory Detect in %s (PID: %d) @ 0x%X Size: %d\n", name, pid, mbi.BaseAddress, mbi.RegionSize)
+				rwxCount++
 
-				threats = append(threats, core.Threat{
-					Name:        "RWX Injection (Shellcode)",
-					Description: fmt.Sprintf("Executable & Writable Private Memory found in %s", name),
-					Level:       core.LevelCritical,
-					Details: map[string]interface{}{
-						"PID":     pid,
-						"Address": mbi.BaseAddress,
-						"Type":    "MEM_PRIVATE",
-					},
-				})
+				// Only report first few to avoid spam
+				if rwxCount <= maxRWXReports {
+					fmt.Printf("[!] THREAT: RWX Memory Detect in %s (PID: %d) @ 0x%X Size: %d\n", name, pid, mbi.BaseAddress, mbi.RegionSize)
+
+					threats = append(threats, core.Threat{
+						Name:        "RWX Injection (Shellcode)",
+						Description: fmt.Sprintf("Executable & Writable Private Memory found in %s", name),
+						Level:       core.LevelHigh, // Downgrade from Critical - needs investigation
+						Details: map[string]interface{}{
+							"PID":     pid,
+							"Address": mbi.BaseAddress,
+							"Type":    "MEM_PRIVATE",
+						},
+					})
+				}
 			}
 		}
 
 		address += mbi.RegionSize
+	}
+
+	if rwxCount > maxRWXReports {
+		fmt.Printf("    [+] (and %d more RWX regions in %s)\n", rwxCount-maxRWXReports, name)
 	}
 
 	return threats

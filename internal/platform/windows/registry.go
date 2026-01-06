@@ -81,25 +81,74 @@ func (r *RegistryParser) checkRunKeys() {
 			suspicious := false
 			reason := ""
 
-			susPatterns := map[string]string{
-				"\\temp\\":        "Runs from Temp directory",
-				"\\appdata\\":     "Runs from AppData",
-				"powershell":      "PowerShell in Run key",
-				"cmd /c":          "CMD execution",
-				"mshta":           "MSHTA execution",
-				"wscript":         "WSH script",
-				"cscript":         "CScript execution",
-				"regsvr32 /s /n":  "Regsvr32 bypass",
-				"rundll32":        "Rundll32 execution",
-				"\\public\\":      "Runs from Public folder",
-				"\\programdata\\": "Runs from ProgramData",
+			// Whitelist for known legitimate apps that run from AppData
+			legitApps := []string{
+				"discord",
+				"slack",
+				"notion",
+				"spotify",
+				"steam",
+				"bluestacks",
+				"microsoft teams",
+				"zoom",
+				"brave",
+				"chrome",
+				"firefox",
+				"opera",
+				"vivaldi",
+				"telegram",
+				"whatsapp",
+				"signal",
+				"dropbox",
+				"onedrive",
+				"google drive",
+				"nvidia",
+				"amd",
+				"msi",
+				"logitech",
+				"razer",
+				"corsair",
+				"steelseries",
+				"openvpn",
+				"nordvpn",
+				"expressvpn",
+				"anydesk",
+				"teamviewer",
 			}
 
-			for pattern, desc := range susPatterns {
-				if strings.Contains(lower, pattern) {
-					suspicious = true
-					reason = desc
+			// Check if it's a legitimate app
+			isLegit := false
+			for _, app := range legitApps {
+				if strings.Contains(lower, app) {
+					isLegit = true
 					break
+				}
+			}
+
+			// Only check suspicious patterns if NOT a known legit app
+			if !isLegit {
+				susPatterns := map[string]string{
+					"\\temp\\":            "Runs from Temp directory",
+					"powershell -enc":     "Encoded PowerShell",
+					"powershell -e ":      "Encoded PowerShell",
+					"cmd /c":              "CMD execution",
+					"mshta":               "MSHTA execution",
+					"wscript":             "WSH script",
+					"cscript":             "CScript execution",
+					"regsvr32 /s /n":      "Regsvr32 bypass",
+					"rundll32 javascript": "Rundll32 script",
+					"\\public\\":          "Runs from Public folder",
+					"\\programdata\\":     "Runs from ProgramData (non-installer)",
+					"http://":             "Downloads from URL",
+					"https://pastebin":    "Downloads from Pastebin",
+				}
+
+				for pattern, desc := range susPatterns {
+					if strings.Contains(lower, pattern) {
+						suspicious = true
+						reason = desc
+						break
+					}
 				}
 			}
 
