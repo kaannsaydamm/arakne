@@ -91,50 +91,39 @@ chmod +x arakne
 - (Opsiyonel) Go 1.21+ (kaynak koddan derlemek için)
 - (Opsiyonel) Windows Driver Kit (WDK) (kernel sürücüsü için)
 
-#### Adım 1: Binary Kullanımı
+#### Adım 1: Kurulum Yöntemleri (Önerilen)
+
+**Seçenek A: MSI Installer (Son Kullanıcı)**
+1. `installer/ArakneSetup.msi` dosyasını çalıştırın.
+2. Yükleme tamamlandığında **"Launch Driver Installer"** kutucuğunu işaretleyin.
+3. Açılan pencerede sürücü kurulumunu onaylayın.
+
+**Seçenek B: Geliştirici Kurulumu (One-Click Setup)**
 ```powershell
-# Yönetici olarak PowerShell aç
-cd C:\path\to\arakne
-.\arakne.exe
+# Projeyi klonlayın ve kök dizinde:
+.\setup.ps1
 ```
+*Bu script sürücüyü derler, ikonu gömer ve uygulamayı oluşturur.*
 
-#### Adım 2: Kaynak Koddan Derleme
+#### Adım 2: Manuel Derleme (Opsiyonel)
 ```powershell
-# Go'nun kurulu olduğundan emin ol
-go version
-
-# Projeyi klonla
-git clone https://github.com/kaannsaydamm/arakne.git
-cd arakne
-
-# Bağımlılıkları indir
-go mod tidy
-
-# Derle
+# Sadece uygulamayı derlemek için:
 go build -o arakne.exe ./cmd/arakne
-
-# Çalıştır (Yönetici olarak)
-.\arakne.exe
 ```
 
-#### Adım 3: Windows Sürücüsü Kurulumu (Opsiyonel - Gelişmiş Özellikler)
+#### Adım 3: Manuel Sürücü Kurulumu (Gelişmiş)
+Eğer `setup.ps1` kullanmadıysanız:
 ```powershell
-# 1. Test Signing modunu aç (reboot gerektirir)
+# 1. Test Signing modunu aç
 bcdedit /set testsigning on
 
-# 2. Visual Studio + WDK kur
-# https://docs.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk
-
-# 3. Sürücüyü derle
+# 2. Sürücüyü derle (VS2022 + WDK Gerekir)
 cd driver\windows
 msbuild ArakneDriver.sln /p:Configuration=Release /p:Platform=x64
 
-# 4. Sürücüyü yükle (Driver otomatik yüklenir, manuel için:)
-sc create Arakne type= kernel binPath= "C:\path\to\ArakneDriver.sys"
+# 3. Sürücüyü yükle
+sc create Arakne type= kernel binPath= "C:\path\to\arakne_wfp.sys"
 sc start Arakne
-
-# 5. Doğrula
-driverquery | findstr Arakne
 ```
 
 ---
@@ -293,6 +282,7 @@ Menüden seçenekleri kullanarak:
 ### Remediation Modülleri
 | Modül | Dosya | Açıklama |
 |-------|-------|----------|
+| Surgical Mode | `stages.go` | Otomatik ComboFix benzeri temizlik |
 | Process Killer | `process_killer.go` | Kernel destekli süreç sonlandırma |
 | Quarantine | `quarantine.go` | XOR şifrelemeli karantina |
 | Evidence | `evidence.go` | Kanıt ZIP'leme |
@@ -303,6 +293,9 @@ Menüden seçenekleri kullanarak:
 ## 🔧 Sürücü Derleme / Driver Compilation
 
 ### Windows Driver (WDK Gerekli)
+Otomatik derleme için kök dizindeki `setup.ps1` scriptini kullanmanız önerilir.
+
+Manuel derleme:
 ```powershell
 # Visual Studio 2022 + WDK 10 kur
 cd driver\windows
@@ -310,7 +303,7 @@ cd driver\windows
 # Derle
 msbuild ArakneDriver.sln /p:Configuration=Release /p:Platform=x64
 
-# Çıktı: x64\Release\ArakneDriver.sys
+# Çıktı: x64\Release\arakne_wfp.sys
 ```
 
 ### Linux Kernel Module
@@ -337,15 +330,19 @@ arakne/
 │   └── arakne/
 │       ├── main.go           # Ana giriş noktası
 │       └── menu_helpers.go   # Menü fonksiyonları
+├── installer/
+│   ├── Product.wxs       # WiX MSI Tanımı
+│   └── build_msi.bat     # MSI Derleme scripti
 ├── driver/
 │   ├── linux/
 │   │   ├── main.c            # Linux kernel modülü
 │   │   └── Makefile
 │   └── windows/
 │       ├── main.c            # Windows KMDF sürücüsü
-│       ├── callbacks.c       # Process/DLL/Registry callbacks
-│       ├── wfp.c             # Network killswitch
-│       └── ioctl.h           # IOCTL tanımları
+│       ├── arakne_wfp.sys    # Derlenmiş sürücü
+│       ├── install.ps1       # Sürücü yükleme scripti
+│       ├── setup_driver.bat  # MSI için wrapper
+│       └── ...
 ├── internal/
 │   ├── core/
 │   │   ├── interfaces.go     # Temel arayüzler
@@ -360,6 +357,8 @@ arakne/
 │   │   └── darwin/           # 1 macOS modülü
 │   └── utils/
 │       └── admin.go          # Yetki kontrolü
+├── winres/                # İkon kaynakları
+├── setup.ps1              # Unified Build Script
 ├── evidence/                  # Kanıt dizini
 ├── go.mod
 ├── go.sum
