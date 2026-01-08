@@ -14,8 +14,8 @@
         <WixVariable Id="WixUILicenseRtf" Value="..\LICENSE.rtf" />
 
         <!-- Launch on Exit -->
-        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Driver Installer (Required)" />
-        <Property Id="WixShellExecTarget" Value="[#SetupDriverBat]" />
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Arakne (Admin)" />
+        <Property Id="WixShellExecTarget" Value="[#ArakneExe]" />
         <CustomAction Id="LaunchApplication" BinaryRef="Wix4UtilCA_X86" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
 
         <UI>

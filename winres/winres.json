@@ -1,34 +1,54 @@
 {
+  "RT_GROUP_ICON": {},
   "RT_MANIFEST": {
-    "manifest": {
-      "execution-level": "requireAdministrator",
-      "ui-access": false,
-      "auto-elevate": false,
-      "dpi-awareness": "system",
-      "identity": {
-        "name": "Arkne.Surgical.Platform",
-        "version": "1.1.0.0",
-        "type": "win32"
+    "#1": {
+      "0409": {
+        "identity": {
+          "name": "Arakne.Surgical.Platform",
+          "version": "1.1.0.0"
+        },
+        "description": "Arakne Security Tool",
+        "minimum-os": "win7",
+        "execution-level": "requireAdministrator",
+        "ui-access": false,
+        "auto-elevate": false,
+        "dpi-awareness": "system",
+        "disable-theming": false,
+        "disable-window-filtering": false,
+        "high-resolution-scrolling-aware": false,
+        "ultra-high-resolution-scrolling-aware": false,
+        "long-path-aware": false,
+        "printer-driver-isolation": false,
+        "gdi-scaling": false,
+        "segment-heap": false,
+        "use-common-controls-v6": false
       }
     }
   },
-  "RT_GROUP_ICON": {
-    "APP_ICON": {
-      "0000": [
-        "logo.ico"
-      ]
-    }
-  },
   "RT_VERSION": {
-    "version": {
-      "file-version": "1.1.0.0",
-      "product-version": "1.1.0.0",
-      "company-name": "Arakne Security",
-      "file-description": "Arakne Surgical Platform",
-      "product-name": "Arakne",
-      "internal-name": "arakne.exe",
-      "original-filename": "arakne.exe",
-      "copyright": "Copyright (c) 2026 Kaan Saydam"
+    "#1": {
+      "0000": {
+        "fixed": {
+          "file_version": "1.1.0.0",
+          "product_version": "1.1.0.0"
+        },
+        "info": {
+          "0409": {
+            "Comments": "",
+            "CompanyName": "Arakne Security",
+            "FileDescription": "Arakne Surgical Platform",
+            "FileVersion": "1.1.0.0",
+            "InternalName": "arakne.exe",
+            "LegalCopyright": "Copyright (c) 2026 Kaan Saydam",
+            "LegalTrademarks": "",
+            "OriginalFilename": "arakne.exe",
+            "PrivateBuild": "",
+            "ProductName": "Arakne",
+            "ProductVersion": "1.1.0.0",
+            "SpecialBuild": ""
+          }
+        }
+      }
     }
   }
 }
