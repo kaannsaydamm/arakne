@@ -107,9 +107,10 @@ NTSTATUS DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     */
         
     case IOCTL_ARAKNE_SELF_DEFENSE:
-        if (buffer && inLen >= sizeof(ULONG)) {
-            g_ProtectedPID = *(PULONG)buffer;
-            KdPrint(("Arakne: Protected PID = %d\n", g_ProtectedPID));
+        if (buffer && inLen >= sizeof(ARAKNE_SELF_DEFENSE_REQUEST)) {
+            PARAKNE_SELF_DEFENSE_REQUEST req = (PARAKNE_SELF_DEFENSE_REQUEST)buffer;
+            g_ProtectedPID = req->ProtectedPID;
+            KdPrint(("Arakne: Protected PID = %d (Level %d)\n", g_ProtectedPID, req->ProtectionLevel));
         }
         break;
         

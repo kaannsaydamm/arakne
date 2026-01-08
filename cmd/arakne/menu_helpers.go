@@ -520,7 +520,7 @@ func runHashCheckTool() {
 	fmt.Println("\n[3] Checking MalwareBazaar (Known Bad)...")
 	fmt.Println("[4] Checking Circl.lu (Known Good)...")
 
-	verdict := intelligence.Global.VerifyHash(hash)
+	verdict := intelligence.Global.VerifyHash(hash, "")
 
 	if verdict.IsKnownBad {
 		fmt.Printf("\n   [!] MALICIOUS: %s (%s)\n", verdict.MalwareName, verdict.Source)

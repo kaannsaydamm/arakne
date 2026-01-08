@@ -33,6 +33,8 @@ type Intelligence struct {
 }
 
 var Global *Intelligence
+// VerifySignatureCallback is a hook for checking digital signatures (set by platform/windows)
+var VerifySignatureCallback func(filePath string) (isSigned bool, signer string, err error)
 
 func init() {
 	Global = NewIntelligence()
@@ -70,7 +72,7 @@ func CalculateFileSHA256(filePath string) (string, error) {
 // 2. Certificate Check (Managed by Caller)
 // 3. MalwareBazaar (Known Bad / Online) -> If Bad -> NUKE
 // 4. Circl.lu (Known Good / NSRL) -> If Good -> PASS
-func (i *Intelligence) VerifyHash(sha256Hash string) HashVerdict {
+func (i *Intelligence) VerifyHash(sha256Hash string, filePath string) HashVerdict {
 	if !i.enabled {
 		return HashVerdict{Hash: sha256Hash, Error: "Intelligence disabled"}
 	}
@@ -107,40 +109,16 @@ func (i *Intelligence) VerifyHash(sha256Hash string) HashVerdict {
 	}
 
 	// --- TIER 2: Certificate Check ---
-	// This requires the file path. If filePath is empty, we skip this.
-	// We need to import the signature package or use a callback?
-	// Since 'intelligence' package is lower level, we might not want to import 'platform/windows'.
-	// However, user asked for this flow.
-	// Solution: VerifyHash now takes 'filePath' argument.
-	// But 'intelligence' shouldn't depend on 'platform/windows' (cyclic dependency risk if platform depends on intelligence).
-	// Let's check imports. 'internal/intelligence' usually shouldn't import 'internal/platform'.
-	// If strict layering: This check should happen OUTSIDE verifyHash, or verifyHash takes a "IsSigned" bool.
-	// User wants "Hash check" to query this.
-	// I will add a callback or assume the caller handles Tier 2?
-	// Wait, the prompt says "hash check'e query şeklinde sorgu yapsın".
-	// "Local Whitelist... Sertifika... MalwareBazaar... Circl.lu"
-	// If I cannot import signature verification here, I will implement Tier 1, 3, 4 here, and let the caller handle Tier 2?
-	// OR, I create a `VerifyFile` function that orchestrates this.
-	// Since `VerifyHash` takes `sha256Hash`, it implies input might just be a hash.
-	// But `Certificate Check` REQUIRES the file content/path.
-	// So the function signature `VerifyHash(sha256Hash)` is insufficient for Tier 2.
-	// I will change signature to `VerifyFile(path string)`.
-
-	// Check Cyclic Dependency:
-	// cmd/arakne imports internal/intelligence.
-	// cmd/arakne imports internal/platform/windows.
-	// internal/platform/windows imports internal/intelligence? Unlikely.
-	// internal/core/scanner imports intelligence and platform/windows?
-
-	// If I keep `VerifyHash` as pure hash check (Tier 1, 3, 4), and `VerifyFile` adds Tier 2.
-	// But `VerifyHash` needs to be called by `VerifyFile`.
-
-	// Let's implement Tier 1, 3, 4 in `VerifyHash`.
-	// And Tier 2 logic will be integrated where `VerifyHash` is called OR I add a `VerifySignature` func pointer.
-
-	// Actually, looking at imports in `hash_check.go`, it only imports stdlib.
-	// I cannot import `internal/platform/windows` here easily without verifying modules.
-	// I'll skip Tier 2 implementation IN THIS FUNCTION for a moment and verify where it's called.
+	// Implemented via Dependency Injection to avoid import cycles.
+	if filePath != "" && VerifySignatureCallback != nil {
+		isSigned, signer, err := VerifySignatureCallback(filePath)
+		if err == nil && isSigned {
+			verdict.IsKnownGood = true
+			verdict.Source = "Tier 2: Digital Signature (" + signer + ")"
+			i.cacheResult(sha256Hash, verdict)
+			return verdict // PASS
+		}
+	}
 
 	// --- TIER 3: MalwareBazaar (Online API) ---
 	// Verify against Online MalwareBazaar (if not found in local cache)
@@ -306,7 +284,8 @@ func (i *Intelligence) VerifyFile(filePath string) HashVerdict {
 	if err != nil {
 		return HashVerdict{Error: err.Error()}
 	}
-	return i.VerifyHash(hash)
+	// Pass filePath for Tier 2 check
+	return i.VerifyHash(hash, filePath)
 }
 
 // Enable enables online intelligence

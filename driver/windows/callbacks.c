@@ -132,24 +132,25 @@ ProcessNotifyCallbackEx(
             }
         }
 
-        // 2. Block Known Malware (always active)
+        // 2. Block Known Malware (Case-Insensitive Check)
         if (CreateInfo->ImageFileName && CreateInfo->ImageFileName->Buffer) {
-            PWCHAR lower = CreateInfo->ImageFileName->Buffer;
+            UNICODE_STRING lowerName;
+            NTSTATUS downStatus = RtlDowncaseUnicodeString(&lowerName, CreateInfo->ImageFileName, TRUE); // Allocate new string
             
-            // Convert to lowercase for comparison (simplified)
-            if (wcsstr(lower, L"mimikatz") ||
-                wcsstr(lower, L"MIMIKATZ") ||
-                wcsstr(lower, L"cobalt") ||
-                wcsstr(lower, L"COBALT") ||
-                wcsstr(lower, L"meterpreter") ||
-                wcsstr(lower, L"METERPRETER") ||
-                wcsstr(lower, L"psexec") ||
-                wcsstr(lower, L"PSEXEC") ||
-                wcsstr(lower, L"beacon") ||
-                wcsstr(lower, L"BEACON")) {
-                KdPrint(("Arakne: [BLOCK] Malicious Binary: %wZ\n", CreateInfo->ImageFileName));
-                CreateInfo->CreationStatus = STATUS_ACCESS_DENIED;
-                return;
+            if (NT_SUCCESS(downStatus)) {
+                // Check against lowercased buffer
+                if (wcsstr(lowerName.Buffer, L"mimikatz") ||
+                    wcsstr(lowerName.Buffer, L"cobalt") ||
+                    wcsstr(lowerName.Buffer, L"meterpreter") ||
+                    wcsstr(lowerName.Buffer, L"psexec") ||
+                    wcsstr(lowerName.Buffer, L"beacon")) {
+                    
+                    KdPrint(("Arakne: [BLOCK] Malicious Binary Detected: %wZ\n", CreateInfo->ImageFileName));
+                    CreateInfo->CreationStatus = STATUS_ACCESS_DENIED;
+                }
+                RtlFreeUnicodeString(&lowerName); // CLEANUP IS CRITICAL
+                
+                if (CreateInfo->CreationStatus == STATUS_ACCESS_DENIED) return;
             }
         }
     } else {

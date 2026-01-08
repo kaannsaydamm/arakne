@@ -82,11 +82,41 @@ func main() {
 		os.Exit(1)
 	}
 
-	checkAndLoadDrivers(runtime.GOOS)
+	// Startup Menu (Avoids Loop)
+	for {
+		clearScreen()
+		fmt.Print(banner)
+		fmt.Println("\n:: STARTUP OPTIONS ::")
+		fmt.Println("1. Launch Arakne System (Auto-Load Driver)")
+		fmt.Println("2. Install/Repair Kernel Driver")
+		fmt.Println("3. Exit")
+		fmt.Print("\nSelect Option [1-3]: ")
+
+		choice := readInput()
+		if choice == "1" {
+			checkAndLoadDrivers(runtime.GOOS)
+			break
+		} else if choice == "2" {
+			installDriver()
+		} else if choice == "3" {
+			fmt.Println("Exiting...")
+			os.Exit(0)
+		}
+	}
 
 	// Initialize Intelligence Database (Hash Cache)
 	fmt.Println("[*] Loading Intelligence Database...")
 	intelligence.InitHashDatabase()
+
+	// Inject Signature Verification Callback (Dependency Injection)
+	if runtime.GOOS == "windows" {
+		intelligence.VerifySignatureCallback = func(filePath string) (bool, string, error) {
+			// Adapter: IsExecutableTrusted (platform) -> VerifySignatureCallback (intelligence)
+			isTrusted, reason := windows.IsExecutableTrusted(filePath)
+			// We only count it as "Signed & Good" if it is TRUSTED (verified vendor)
+			return isTrusted, reason, nil
+		}
+	}
 
 	time.Sleep(1 * time.Second)
 
@@ -388,46 +418,14 @@ func checkAndLoadDrivers(osName string) {
 		fmt.Printf("[*] Auto-Loading Driver: %s\n", driverName)
 
 		loader := windows.NewDriverLoader(driverName)
-		fmt.Printf("[*] Checking for driver file: %s\n", loader.DriverPath)
-
 		err := loader.Load()
 		if err == nil {
 			fmt.Println("[+] Driver Communication Established. Kernel Mode ACTIVE.")
-			// Optional: Ask to reinstall if user wants repair?
-			// For now, assume if it works, it works.
 			return
 		}
 
 		fmt.Printf("[-] Driver Load Failed: %v\n", err)
-
-		// Interactive Prompt
-		fmt.Print("\n[?] Kernel Driver is MISSING or DISABLED. Install/Repair now? (y/n): ")
-		if readInput() == "y" {
-			fmt.Println("[*] Launching Driver Installer...")
-
-			installScript := "driver\\windows\\install.ps1"
-			// Execute PowerShell with UI visible so user can see progress/errors
-			cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", installScript)
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-
-			if err := cmd.Run(); err != nil {
-				fmt.Printf("[!] Installation Failed: %v\n", err)
-				fmt.Println("    [NOTE] You can run 'driver\\windows\\install.ps1' manually.")
-			} else {
-				fmt.Println("\n[+] Installer finished. Retrying connection...")
-				time.Sleep(2 * time.Second)
-				if err := loader.Load(); err != nil {
-					fmt.Printf("[-] Retry Failed: %v\n", err)
-					fmt.Println("    [!] Arakne will run in User Mode (Standard).")
-				} else {
-					fmt.Println("[+] Driver Loaded Successfully!")
-				}
-			}
-		} else {
-			fmt.Println("[-] Auto-Install declined. Running in User Mode.")
-		}
+		fmt.Println("    [!] Running in User Mode (Limited Capabilities).")
 		return
 
 	case "linux":
@@ -436,8 +434,32 @@ func checkAndLoadDrivers(osName string) {
 		driverName = "arakne_kext"
 	}
 
-	fmt.Printf("[*] Checking for specific kernel driver: %s...\n", driverName)
-	fmt.Println("[-] Driver not loaded (Simulation for non-Windows).")
+	fmt.Printf("[*] Checking for user mode simulation: %s...\n", driverName)
+}
+
+func installDriver() {
+	if runtime.GOOS != "windows" {
+		fmt.Println("[-] Installer is Windows only.")
+		waitForKey()
+		return
+	}
+
+	fmt.Println("[*] Launching Driver Installer (PowerShell)...")
+	installScript := "driver\\windows\\install.ps1"
+
+	// Execute PowerShell with UI visible so user can see progress/errors
+	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", installScript)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("[!] Installation Failed: %v\n", err)
+		fmt.Println("    [NOTE] You can run 'driver\\windows\\install.ps1' manually.")
+	} else {
+		fmt.Println("\n[+] Installer finished successfully.")
+	}
+	waitForKey()
 }
 
 func readInput() string {

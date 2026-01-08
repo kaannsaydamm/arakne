@@ -44,6 +44,8 @@ UINT32 g_CalloutIdV4 = 0;
 UINT32 g_CalloutIdV6 = 0;
 
 // Callout Routine: ClassifyFn
+extern ULONG g_ProtectedPID;
+
 void ArakneClassifyFn(
     _In_ const FWPS_INCOMING_VALUES0* inFixedValues,
     _In_ const FWPS_INCOMING_METADATA_VALUES0* inMetaValues,
@@ -55,13 +57,23 @@ void ArakneClassifyFn(
     )
 {
     UNREFERENCED_PARAMETER(inFixedValues);
-    UNREFERENCED_PARAMETER(inMetaValues);
     UNREFERENCED_PARAMETER(layerData);
     UNREFERENCED_PARAMETER(classifyContext);
     UNREFERENCED_PARAMETER(filter);
     UNREFERENCED_PARAMETER(flowContext);
 
     if (g_NetworkIsolate) {
+        // EXEMPTION LOGIC: Allow Arakne itself to talk
+        if (g_ProtectedPID != 0 && 
+            FWPS_IS_METADATA_FIELD_PRESENT(inMetaValues, FWPS_METADATA_FIELD_PROCESS_ID)) {
+            
+            if ((ULONG)inMetaValues->processId == g_ProtectedPID) {
+                // Allow Arakne Traffic even if Killswitch is ON
+                classifyOut->actionType = FWP_ACTION_PERMIT;
+                return;
+            }
+        }
+
         // KILL SWITCH ENGAGED
         classifyOut->actionType = FWP_ACTION_BLOCK;
         classifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE; // Prevent others from permitting
