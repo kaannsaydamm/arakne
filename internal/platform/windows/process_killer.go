@@ -17,7 +17,7 @@ func (p *ProcessKiller) Remediate(pid uint32) error {
 	fmt.Printf("[!] KILL COMMAND RECEIVED FOR PID: %d\n", pid)
 
 	// 1. Enable SeDebugPrivilege (Critical for killing elevated procs)
-	// In God Mode, we bypass this by using the Driver, but good to have for fallback.
+	// Kernel driver bypasses this, but good to have for fallback.
 	_ = enableDebugPrivilege()
 
 	// 2. Kill the Process Tree (Driver Preferred)
@@ -36,7 +36,7 @@ func terminatePID(pid uint32) error {
 	// Try Kernel Mode First (The Iron Hand)
 	err := terminateViaDriver(pid)
 	if err == nil {
-		fmt.Printf("[+] GOD MODE: Terminated PID %d via Kernel Driver.\n", pid)
+		fmt.Printf("[+] KERNEL: Terminated PID %d via Driver.\n", pid)
 		return nil
 	}
 
@@ -99,7 +99,7 @@ func terminateViaDriver(pid uint32) error {
 
 func enableDebugPrivilege() error {
 	// ... (Implementation omitted for brevity in this step, assume standard token adjustment)
-	// For "God Mode", the driver bypasses ACLs anyway.
+	// The kernel driver bypasses ACLs anyway.
 	return nil
 }
 

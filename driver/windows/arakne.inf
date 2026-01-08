@@ -1,0 +1,72 @@
+;
+; Arakne WFP Kernel Driver INF
+; Copyright (c) 2026 Kaan Saydam
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = System
+ClassGuid   = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider    = %ManufacturerName%
+CatalogFile = arakne.cat
+DriverVer   = 01/08/2026,1.0.0.0
+PnpLockDown = 1
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+arakne_wfp.sys = 1,,
+
+;*****************************************
+; Arakne Device Install Section
+;*****************************************
+
+[Manufacturer]
+%ManufacturerName% = Standard,NTamd64
+
+[Standard.NTamd64]
+%DeviceDesc% = Arakne_Device, Root\Arakne
+
+;*****************************************
+; Arakne Device Section
+;*****************************************
+
+[Arakne_Device.NT]
+CopyFiles = Drivers_Dir
+
+[Drivers_Dir]
+arakne_wfp.sys
+
+[Arakne_Device.NT.Services]
+AddService = arakne, 0x00000002, Arakne_Service_Inst
+
+[Arakne_Service_Inst]
+DisplayName    = %ServiceDesc%
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\arakne_wfp.sys
+
+;*****************************************
+; WDF Section
+;*****************************************
+
+[Arakne_Device.NT.Wdf]
+KmdfService = arakne, Arakne_wdfsect
+
+[Arakne_wdfsect]
+KmdfLibraryVersion = 1.35
+
+;*****************************************
+; Strings Section
+;*****************************************
+
+[Strings]
+ManufacturerName = "Arakne Security"
+DiskName         = "Arakne Driver Installation Disk"
+DeviceDesc       = "Arakne WFP Security Driver"
+ServiceDesc      = "Arakne Kernel Mode Driver"

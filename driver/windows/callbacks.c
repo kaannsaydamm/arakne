@@ -1,6 +1,15 @@
 #include <ntddk.h>
-#include <wdf.h>
+#include <ntstrsafe.h>
 #include "ioctl.h"
+
+// Process access rights (not defined in kernel-mode headers)
+#ifndef PROCESS_TERMINATE
+#define PROCESS_TERMINATE           0x0001
+#define PROCESS_CREATE_THREAD       0x0002
+#define PROCESS_VM_OPERATION        0x0008
+#define PROCESS_VM_READ             0x0010
+#define PROCESS_VM_WRITE            0x0020
+#endif
 
 // Globals from main.c
 extern BOOLEAN g_NukeMode;
@@ -278,13 +287,19 @@ NTSTATUS RegisterProcessCallbacks()
         KdPrint(("Arakne: CmRegisterCallbackEx failed: 0x%x (non-fatal)\n", status));
     }
     
+    
     // 4. Self-Defense (ObRegisterCallbacks)
-    OB_CALLBACK_REGISTRATION obReg = {0};
-    OB_OPERATION_REGISTRATION opReg = {0};
+    OB_CALLBACK_REGISTRATION obReg;
+    OB_OPERATION_REGISTRATION opReg;
+    UNICODE_STRING ObAltitude;
+    
+    RtlZeroMemory(&obReg, sizeof(obReg));
+    RtlZeroMemory(&opReg, sizeof(opReg));
+    RtlInitUnicodeString(&ObAltitude, L"320000");
     
     obReg.Version = OB_FLT_REGISTRATION_VERSION;
     obReg.OperationRegistrationCount = 1;
-    obReg.Altitude = RTL_CONSTANT_STRING(L"320000");
+    obReg.Altitude = ObAltitude;
     obReg.RegistrationContext = NULL;
     obReg.OperationRegistration = &opReg;
     

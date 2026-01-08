@@ -1,0 +1,34 @@
+{
+  "RT_MANIFEST": {
+    "manifest": {
+      "execution-level": "requireAdministrator",
+      "ui-access": false,
+      "auto-elevate": false,
+      "dpi-awareness": "system",
+      "identity": {
+        "name": "Arkne.Surgical.Platform",
+        "version": "1.1.0.0",
+        "type": "win32"
+      }
+    }
+  },
+  "RT_GROUP_ICON": {
+    "APP_ICON": {
+      "0000": [
+        "logo.ico"
+      ]
+    }
+  },
+  "RT_VERSION": {
+    "version": {
+      "file-version": "1.1.0.0",
+      "product-version": "1.1.0.0",
+      "company-name": "Arakne Security",
+      "file-description": "Arakne Surgical Platform",
+      "product-name": "Arakne",
+      "internal-name": "arakne.exe",
+      "original-filename": "arakne.exe",
+      "copyright": "Copyright (c) 2026 Kaan Saydam"
+    }
+  }
+}

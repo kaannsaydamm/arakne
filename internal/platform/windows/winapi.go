@@ -6,11 +6,12 @@ import (
 )
 
 var (
-	modkernel32          = syscall.NewLazyDLL("kernel32.dll")
-	procCreateFileW      = modkernel32.NewProc("CreateFileW")
-	procReadFile         = modkernel32.NewProc("ReadFile")
-	procCloseHandle      = modkernel32.NewProc("CloseHandle")
-	procSetFilePointerEx = modkernel32.NewProc("SetFilePointerEx")
+	modkernel32                    = syscall.NewLazyDLL("kernel32.dll")
+	procCreateFileW                = modkernel32.NewProc("CreateFileW")
+	procReadFile                   = modkernel32.NewProc("ReadFile")
+	procCloseHandle                = modkernel32.NewProc("CloseHandle")
+	procSetFilePointerEx           = modkernel32.NewProc("SetFilePointerEx")
+	procQueryFullProcessImageNameW = modkernel32.NewProc("QueryFullProcessImageNameW")
 )
 
 const (

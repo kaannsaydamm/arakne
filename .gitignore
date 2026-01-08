@@ -1,0 +1,52 @@
+# Binaries
+*.exe
+!arakne.exe
+*.dll
+*.so
+*.dylib
+
+# Driver Build Artifacts
+*.obj
+*.o
+*.mod.c
+*.order
+*.symvers
+driver/windows/x64/
+
+# Explicitly Include Drivers (Plug n Play)
+!*.sys
+!*.ko
+
+# Windows Resources (go-winres)
+*.syso
+winres/rsrc_*.syso
+
+# Installer Artifacts
+installer/*.msi
+!installer/ArakneSetup.msi
+installer/*.wixobj
+installer/*.wixpdb
+installer/bin/
+installer/obj/
+build_log.txt
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+
+# Application Data (Runtime)
+Logs/
+Evidence/
+Combo_Log.txt
+quarantine/
+
+# User Specified Exclusions
+logo.png
+logo.ico
+swagger.json
+*.rtf
+
+# Go
+go.sum
+vendor/

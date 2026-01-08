@@ -1,0 +1,7 @@
+﻿  callbacks.c
+  main.c
+  wfp.c
+C:\Users\kaann\OneDrive\Desktop\arakne\driver\windows\callbacks.c(1,10): error C1083: içerme dosyası açılamıyor: 'ntddk.h': No such file or directory
+C:\Users\kaann\OneDrive\Desktop\arakne\driver\windows\main.c(1,10): error C1083: içerme dosyası açılamıyor: 'ntddk.h': No such file or directory
+C:\Users\kaann\OneDrive\Desktop\arakne\driver\windows\wfp.c(1,10): error C1083: içerme dosyası açılamıyor: 'ntddk.h': No such file or directory
+  Kod Üretiliyor...

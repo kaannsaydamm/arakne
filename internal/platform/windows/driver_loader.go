@@ -1,9 +1,11 @@
 package windows
 
 import (
+	"arakne/internal/core"
 	"fmt"
-	"path/filepath"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 // DriverLoader manages the installation and loading of Kernel Drivers
@@ -14,11 +16,37 @@ type DriverLoader struct {
 }
 
 func NewDriverLoader(driverName string) *DriverLoader {
+	// Check multiple possible locations for the driver
+	possiblePaths := []string{
+		filepath.Join(core.DriversDir, driverName),     // C:\Arakne\Drivers\file.sys (Standard)
+		filepath.Join(core.BaseDir, driverName),        // C:\Arakne\file.sys (Legacy)
+		"C:\\Arakne\\" + driverName,                    // Legacy Hardcoded
+		filepath.Join("driver", "windows", driverName), // Source tree
+	}
+
+	// Add CWD-based path
 	cwd, _ := os.Getwd()
+	possiblePaths = append(possiblePaths, filepath.Join(cwd, driverName))
+	possiblePaths = append(possiblePaths, filepath.Join(cwd, "driver", "windows", driverName))
+
+	// Find first existing driver
+	var driverPath string
+	for _, p := range possiblePaths {
+		if _, err := os.Stat(p); err == nil {
+			driverPath = p
+			break
+		}
+	}
+
+	// Default to standard location if nothing found
+	if driverPath == "" {
+		driverPath = filepath.Join(core.DriversDir, driverName)
+	}
+
 	return &DriverLoader{
-		ServiceName: "ArakneDriver",
+		ServiceName: "arakne",
 		DisplayName: "Arakne Kernel Driver",
-		DriverPath:  filepath.Join(cwd, driverName),
+		DriverPath:  driverPath,
 	}
 }
 
@@ -29,8 +57,8 @@ func (d *DriverLoader) Load() error {
 	}
 
 	fmt.Println("[*] Driver file found. Connecting to Service Control Manager...")
-	
-	scm, err := OpenSCManager(nil, nil, SC_MANAGER_CREATE_SERVICE | SC_MANAGER_CONNECT)
+
+	scm, err := OpenSCManager(nil, nil, SC_MANAGER_CREATE_SERVICE|SC_MANAGER_CONNECT)
 	if err != nil {
 		return fmt.Errorf("failed to open SCM: %v", err)
 	}
@@ -55,9 +83,15 @@ func (d *DriverLoader) Load() error {
 	// Start Service
 	err = StartService(service)
 	if err != nil {
+		errStr := err.Error()
 		// Check if already running (Error 1056 - ERROR_SERVICE_ALREADY_RUNNING)
-		// Simpler check: just log error but don't fail hard if it's "running"
-		return fmt.Errorf("failed to start service (Code %v). It might be already running or blocked by DSE", err)
+		// Turkish: "halen çalışıyor" or English: "already running"
+		if strings.Contains(errStr, "1056") || strings.Contains(errStr, "already running") ||
+			strings.Contains(errStr, "halen") || strings.Contains(errStr, "çalışıyor") {
+			fmt.Println("[+] Driver already running. Kernel Mode ACTIVE.")
+			return nil
+		}
+		return fmt.Errorf("failed to start service (Code %v). It might be blocked by DSE or signing issue", err)
 	}
 
 	fmt.Println("[+] Driver Loaded Successfully! Kernel access obtained.")

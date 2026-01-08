@@ -4,69 +4,12 @@ import (
 	"arakne/internal/core"
 	"fmt"
 	"strings"
+	"syscall"
+	"unsafe"
 )
 
 // MemoryScanner implements the Scanner interface for RAM Forensics
 type MemoryScanner struct{}
-
-// Processes known to legitimately use RWX memory (JIT engines, browsers, etc)
-var jitWhitelist = map[string]bool{
-	// Browsers (V8/SpiderMonkey JIT)
-	"chrome.exe":         true,
-	"msedge.exe":         true,
-	"msedgewebview2.exe": true,
-	"firefox.exe":        true,
-	"zen.exe":            true,
-	"brave.exe":          true,
-	"opera.exe":          true,
-	"vivaldi.exe":        true,
-
-	// .NET / PowerShell (CLR JIT)
-	"powershell.exe": true,
-	"pwsh.exe":       true,
-	"dotnet.exe":     true,
-
-	// Java (HotSpot JIT)
-	"java.exe":  true,
-	"javaw.exe": true,
-
-	// Node.js (V8 JIT)
-	"node.exe": true,
-
-	// GPU / Graphics (shader compilation)
-	"nvidia overlay.exe": true,
-	"amd.exe":            true,
-
-	// Development tools
-	"code.exe":        true,
-	"devenv.exe":      true,
-	"antigravity.exe": true,
-
-	// Common legitimate apps with JIT
-	"discord.exe":        true,
-	"slack.exe":          true,
-	"teams.exe":          true,
-	"spotify.exe":        true,
-	"whatsapp.exe":       true,
-	"telegram.exe":       true,
-	"openvpnconnect.exe": true,
-	"anydesk.exe":        true,
-
-	// System apps that use RWX
-	"wmiprvse.exe":            true,
-	"searchui.exe":            true,
-	"runtimebroker.exe":       true,
-	"backgroundtaskhost.exe":  true,
-	"phoneexperiencehost.exe": true,
-
-	// Vendor tools (MSI, etc)
-	"msi_lan_manager_tool.exe": true,
-	"msi.terminalserver.exe":   true,
-	"omapsvcbroker.exe":        true,
-	"nhnotifsys.exe":           true,
-	"dcv2.exe":                 true,
-	"rvrvpngui.exe":            true,
-}
 
 func (m *MemoryScanner) Name() string {
 	return "Active Memory Hunter"
@@ -94,10 +37,18 @@ func (m *MemoryScanner) ScanProcesses() []core.Threat {
 			continue
 		}
 
-		// Skip whitelisted JIT processes
-		lowerName := strings.ToLower(p.Name)
-		if jitWhitelist[lowerName] {
-			continue
+		// Get executable path and verify signature
+		execPath := getProcessPath(p.PID)
+		if execPath != "" {
+			trusted, reason := IsExecutableTrusted(execPath)
+			if trusted {
+				// Skip signed/trusted executables - they use RWX for JIT legitimately
+				continue
+			}
+			// Log unsigned/untrusted for visibility
+			if reason == "unsigned" {
+				fmt.Printf("    [i] Unsigned process: %s (%s)\n", p.Name, reason)
+			}
 		}
 
 		t := m.scanPID(p.PID, p.Name)
@@ -112,10 +63,8 @@ func (m *MemoryScanner) scanPID(pid uint32, name string) []core.Threat {
 	threats := []core.Threat{}
 
 	// Open Process with QUERY_INFORMATION | VM_READ
-	// 0x1000 = PROCESS_QUERY_LIMITED_INFORMATION (safer), 0x0010 = VM_READ
 	handle, err := OpenProcess(0x0400|0x0010, false, pid)
 	if err != nil {
-		// fmt.Printf("[-] Access Denied: %s (%d)\n", name, pid)
 		return nil
 	}
 	defer CloseHandle(handle)
@@ -127,29 +76,24 @@ func (m *MemoryScanner) scanPID(pid uint32, name string) []core.Threat {
 	for {
 		mbi, err := VirtualQueryEx(handle, address)
 		if err != nil {
-			break // End of memory or error
+			break
 		}
 
 		// Check for RWX (Execute + Write)
-		// PAGE_EXECUTE_READWRITE = 0x40
-		// PAGE_EXECUTE_WRITECOPY = 0x80
 		if (mbi.Protect == PAGE_EXECUTE_READWRITE || mbi.Protect == PAGE_EXECUTE_WRITECOPY) &&
 			mbi.State == MEM_COMMIT {
 
-			// Further check: Is it MEM_PRIVATE or MEM_MAPPED?
-			// Legitimate DLLs are MEM_IMAGE.
-			// Shellcode injection is almost ALWAYS MEM_PRIVATE or MEM_MAPPED.
+			// Shellcode is almost always MEM_PRIVATE
 			if mbi.Type == MEM_PRIVATE {
 				rwxCount++
 
-				// Only report first few to avoid spam
 				if rwxCount <= maxRWXReports {
-					fmt.Printf("[!] THREAT: RWX Memory Detect in %s (PID: %d) @ 0x%X Size: %d\n", name, pid, mbi.BaseAddress, mbi.RegionSize)
+					fmt.Printf("[!] THREAT: RWX Memory in %s (PID: %d) @ 0x%X Size: %d\n", name, pid, mbi.BaseAddress, mbi.RegionSize)
 
 					threats = append(threats, core.Threat{
 						Name:        "RWX Injection (Shellcode)",
-						Description: fmt.Sprintf("Executable & Writable Private Memory found in %s", name),
-						Level:       core.LevelHigh, // Downgrade from Critical - needs investigation
+						Description: fmt.Sprintf("Executable & Writable Private Memory found in UNSIGNED %s", name),
+						Level:       core.LevelHigh,
 						Details: map[string]interface{}{
 							"PID":     pid,
 							"Address": mbi.BaseAddress,
@@ -168,4 +112,50 @@ func (m *MemoryScanner) scanPID(pid uint32, name string) []core.Threat {
 	}
 
 	return threats
+}
+
+// getProcessPath gets the executable path for a PID using QueryFullProcessImageNameW
+func getProcessPath(pid uint32) string {
+	// Open process with PROCESS_QUERY_LIMITED_INFORMATION (0x1000)
+	handle, err := OpenProcess(0x1000, false, pid)
+	if err != nil {
+		return ""
+	}
+	defer CloseHandle(handle)
+
+	// Buffer for path
+	buf := make([]uint16, 1024)
+	size := uint32(len(buf))
+
+	// Call QueryFullProcessImageNameW
+	ret, _, _ := procQueryFullProcessImageNameW.Call(
+		uintptr(handle),
+		0, // Use Win32 path format
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(unsafe.Pointer(&size)),
+	)
+
+	if ret == 0 {
+		return ""
+	}
+
+	return syscall.UTF16ToString(buf[:size])
+}
+
+// isKnownJITProcess checks if process name matches known JIT engines
+// This is a fallback when signature verification fails
+func isKnownJITProcess(name string) bool {
+	jitNames := []string{
+		"chrome", "msedge", "firefox", "zen", "brave",
+		"powershell", "pwsh", "node", "java",
+		"code", "devenv", "antigravity",
+	}
+
+	lowerName := strings.ToLower(name)
+	for _, jit := range jitNames {
+		if strings.Contains(lowerName, jit) {
+			return true
+		}
+	}
+	return false
 }

@@ -1,25 +1,38 @@
+// Arakne WDM Kernel Driver - Pure WDM (No KMDF)
+// Copyright (c) 2026 Kaan Saydam
+
 #include <ntddk.h>
-#include <wdf.h>
+#include <ntstrsafe.h>
 #include "ioctl.h"
 
 #define DRIVER_TAG 'krnA'
+#define DEVICE_NAME L"\\Device\\Arakne"
+#define SYMLINK_NAME L"\\DosDevices\\Arakne"
 
-// Global state for features
+// Process access rights
+#ifndef PROCESS_TERMINATE
+#define PROCESS_TERMINATE           0x0001
+#endif
+
+// Global state
 BOOLEAN g_NukeMode = FALSE;
 ULONG g_ProtectedPID = 0;
-extern BOOLEAN g_NetworkIsolate; // From wfp.c
+PDEVICE_OBJECT g_DeviceObject = NULL;
 
-// Function Prototypes
+// Forward declarations
 DRIVER_INITIALIZE DriverEntry;
-EVT_WDF_DRIVER_DEVICE_ADD ArakneEvtDeviceAdd;
-EVT_WDF_OBJECT_CONTEXT_CLEANUP ArakneEvtDriverContextCleanup;
+DRIVER_UNLOAD DriverUnload;
+_Dispatch_type_(IRP_MJ_CREATE) DRIVER_DISPATCH DispatchCreate;
+_Dispatch_type_(IRP_MJ_CLOSE) DRIVER_DISPATCH DispatchClose;
+_Dispatch_type_(IRP_MJ_DEVICE_CONTROL) DRIVER_DISPATCH DispatchDeviceControl;
 
-// Forward Declaration for WFP and Callbacks
-NTSTATUS RegisterWFPCallouts(WDFDEVICE Device);
+// External functions from callbacks.c and wfp.c
 NTSTATUS RegisterProcessCallbacks(void);
 VOID UnregisterProcessCallbacks(void);
+VOID UnregisterWFPCallouts(void);
+NTSTATUS RegisterWFPCallouts(PDEVICE_OBJECT DeviceObject);
 
-// Helper: Terminate process by PID
+// Terminate process by PID
 NTSTATUS TerminateProcessByPid(ULONG ProcessId)
 {
     NTSTATUS status;
@@ -34,205 +47,197 @@ NTSTATUS TerminateProcessByPid(ULONG ProcessId)
     
     status = ZwOpenProcess(&hProcess, PROCESS_TERMINATE, &objAttr, &clientId);
     if (!NT_SUCCESS(status)) {
-        KdPrint(("Arakne: ZwOpenProcess failed for PID %d: 0x%x\n", ProcessId, status));
+        KdPrint(("Arakne: ZwOpenProcess failed: 0x%x\n", status));
         return status;
     }
     
     status = ZwTerminateProcess(hProcess, 0);
     ZwClose(hProcess);
     
-    if (NT_SUCCESS(status)) {
-        KdPrint(("Arakne: Successfully terminated PID %d\n", ProcessId));
-    } else {
-        KdPrint(("Arakne: ZwTerminateProcess failed: 0x%x\n", status));
-    }
-    
     return status;
 }
 
-// IOCTL Dispatch Routine
-NTSTATUS ArakneDeviceControl(
-    _In_ PDEVICE_OBJECT DeviceObject,
-    _In_ PIRP Irp
-    )
+// Create/Close dispatch
+NTSTATUS DispatchCreate(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
-    
-    PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
-    ULONG controlCode = stack->Parameters.DeviceIoControl.IoControlCode;
-    NTSTATUS status = STATUS_SUCCESS;
-    ULONG bytesIO = 0;
-
-    switch (controlCode) {
-        case IOCTL_ARAKNE_PING:
-            KdPrint(("Arakne: PONG! Driver is alive.\n"));
-            break;
-
-        case IOCTL_ARAKNE_TERMINATE_PROCESS:
-            {
-                if (stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(ARAKNE_TERMINATE_REQUEST)) {
-                    status = STATUS_BUFFER_TOO_SMALL;
-                    break;
-                }
-                
-                PARAKNE_TERMINATE_REQUEST input = (PARAKNE_TERMINATE_REQUEST)Irp->AssociatedIrp.SystemBuffer;
-                if (input && input->ProcessId != 0) {
-                    KdPrint(("Arakne: Request to KILL PID %d\n", input->ProcessId));
-                    status = TerminateProcessByPid(input->ProcessId);
-                }
-            }
-            break;
-
-        case IOCTL_ARAKNE_NUKE_MODE:
-             KdPrint(("Arakne: NUKE MODE TOGGLED\n"));
-             g_NukeMode = !g_NukeMode;
-             break;
-
-        case IOCTL_ARAKNE_SELF_DEFENSE:
-            {
-                 if (stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(ARAKNE_SELF_DEFENSE_REQUEST)) {
-                    status = STATUS_BUFFER_TOO_SMALL;
-                    break;
-                }
-                PARAKNE_SELF_DEFENSE_REQUEST input = (PARAKNE_SELF_DEFENSE_REQUEST)Irp->AssociatedIrp.SystemBuffer;
-                if (input) {
-                    g_ProtectedPID = input->ProtectedPID;
-                    KdPrint(("Arakne: Self-Defense Active for PID %d\n", g_ProtectedPID));
-                }
-            }
-            break;
-
-        case IOCTL_ARAKNE_NETWORK_ISOLATE:
-            {
-                if (stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(ARAKNE_NETWORK_REQUEST)) {
-                    status = STATUS_BUFFER_TOO_SMALL;
-                    break;
-                }
-                PARAKNE_NETWORK_REQUEST input = (PARAKNE_NETWORK_REQUEST)Irp->AssociatedIrp.SystemBuffer;
-                if (input) {
-                    g_NetworkIsolate = input->Isolate;
-                    KdPrint(("Arakne: Network Isolation = %s\n", g_NetworkIsolate ? "ON" : "OFF"));
-                }
-            }
-            break;
-
-        case IOCTL_ARAKNE_ETW_SUBSCRIBE:
-            KdPrint(("Arakne: ETW Subscription requested (handled in user-mode)\n"));
-            break;
-
-        case IOCTL_ARAKNE_SET_WHITELIST:
-            {
-                if (stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(ARAKNE_WHITELIST_REQUEST)) {
-                    status = STATUS_BUFFER_TOO_SMALL;
-                    break;
-                }
-                PARAKNE_WHITELIST_REQUEST input = (PARAKNE_WHITELIST_REQUEST)Irp->AssociatedIrp.SystemBuffer;
-                if (input) {
-                    // Forward to callbacks.c
-                    extern NTSTATUS UpdateWhitelist(PARAKNE_WHITELIST_REQUEST request);
-                    status = UpdateWhitelist(input);
-                    KdPrint(("Arakne: Whitelist updated with %d entries\n", input->EntryCount));
-                }
-            }
-            break;
-
-        default:
-            status = STATUS_INVALID_DEVICE_REQUEST;
-            break;
-    }
-
-    Irp->IoStatus.Status = status;
-    Irp->IoStatus.Information = bytesIO;
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    return status;
-}
-
-
-NTSTATUS
-DriverEntry(
-    _In_ PDRIVER_OBJECT  DriverObject,
-    _In_ PUNICODE_STRING RegistryPath
-    )
-{
-    NTSTATUS status;
-    WDF_DRIVER_CONFIG config;
-
-    KdPrint(("Arakne: DriverEntry - Starting God Mode Kernel Module\n"));
-
-    WDF_DRIVER_CONFIG_INIT(&config, ArakneEvtDeviceAdd);
-    config.EvtDriverContextCleanup = ArakneEvtDriverContextCleanup;
-
-    status = WdfDriverCreate(DriverObject,
-                             RegistryPath,
-                             WDF_NO_OBJECT_ATTRIBUTES,
-                             &config,
-                             WDF_NO_HANDLE
-                             );
-
-    if (!NT_SUCCESS(status)) {
-        KdPrint(("Arakne: Error: WdfDriverCreate failed 0x%x\n", status));
-        return status;
-    }
-    
-    // Register IOCTL Dispatch
-    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = ArakneDeviceControl;
-    
-    // Register Process Callbacks (Execution Monitoring)
-    status = RegisterProcessCallbacks();
-    if (!NT_SUCCESS(status)) {
-         KdPrint(("Arakne: Warning: Failed to register Process Callbacks\n"));
-    }
-    
-    KdPrint(("Arakne: Driver loaded successfully.\n"));
-    return status;
-}
-
-NTSTATUS
-ArakneEvtDeviceAdd(
-    _In_    WDFDRIVER       Driver,
-    _Inout_ PWDFDEVICE_INIT DeviceInit
-    )
-{
-    NTSTATUS status;
-    WDFDEVICE device;
-    
-    UNREFERENCED_PARAMETER(Driver);
-
-    KdPrint(("Arakne: EvtDeviceAdd\n"));
-
-    // We must create a device object to receive IOCTLs
-    status = WdfDeviceCreate(&DeviceInit, WDF_NO_OBJECT_ATTRIBUTES, &device);
-    if (!NT_SUCCESS(status)) {
-        KdPrint(("Arakne: WdfDeviceCreate failed 0x%x\n", status));
-        return status;
-    }
-    
-    // Create Symbolic Link so User Mode can CreateFile("\\\\.\\Arakne")
-    DECLARE_CONST_UNICODE_STRING(symbolicLinkName, L"\\DosDevices\\Arakne");
-    status = WdfDeviceCreateSymbolicLink(device, &symbolicLinkName);
-    if (!NT_SUCCESS(status)) {
-        KdPrint(("Arakne: Failed to create symbolic link status 0x%x\n", status));
-        return status;
-    }
-
-    // Initialize WFP Callouts (Network Killswitch)
-    status = RegisterWFPCallouts(device);
-    if (!NT_SUCCESS(status)) {
-        KdPrint(("Arakne: WFP Registration failed (non-fatal): 0x%x\n", status));
-        // Continue anyway - WFP is optional
-    }
-
     return STATUS_SUCCESS;
 }
 
-VOID
-ArakneEvtDriverContextCleanup(
-    _In_ WDFOBJECT DriverObject
-    )
+NTSTATUS DispatchClose(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
-    UNREFERENCED_PARAMETER(DriverObject);
-    KdPrint(("Arakne: Context Cleanup - Unloading Driver\n"));
+    UNREFERENCED_PARAMETER(DeviceObject);
+    Irp->IoStatus.Status = STATUS_SUCCESS;
+    Irp->IoStatus.Information = 0;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return STATUS_SUCCESS;
+}
+
+// IOCTL dispatch
+NTSTATUS DispatchDeviceControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+{
+    UNREFERENCED_PARAMETER(DeviceObject);
     
+    PIO_STACK_LOCATION irpSp = IoGetCurrentIrpStackLocation(Irp);
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG bytesIO = 0;
+    
+    ULONG ioctl = irpSp->Parameters.DeviceIoControl.IoControlCode;
+    PVOID buffer = Irp->AssociatedIrp.SystemBuffer;
+    ULONG inLen = irpSp->Parameters.DeviceIoControl.InputBufferLength;
+    ULONG outLen = irpSp->Parameters.DeviceIoControl.OutputBufferLength;
+    
+    switch (ioctl) {
+    case IOCTL_ARAKNE_TERMINATE_PROCESS:
+        if (buffer && inLen >= sizeof(ULONG)) {
+            ULONG pid = *(PULONG)buffer;
+            status = TerminateProcessByPid(pid);
+            KdPrint(("Arakne: Kill PID %d = 0x%x\n", pid, status));
+        }
+        break;
+        
+    /* Nuke Mode Removed - Logic moved to User Mode Auto-Remediation
+    case IOCTL_ARAKNE_NUKE_MODE:
+        g_NukeMode = !g_NukeMode;
+        KdPrint(("Arakne: Nuke Mode = %s\n", g_NukeMode ? "ON" : "OFF"));
+        break;
+    */
+        
+    case IOCTL_ARAKNE_SELF_DEFENSE:
+        if (buffer && inLen >= sizeof(ULONG)) {
+            g_ProtectedPID = *(PULONG)buffer;
+            KdPrint(("Arakne: Protected PID = %d\n", g_ProtectedPID));
+        }
+        break;
+        
+    case IOCTL_ARAKNE_NETWORK_ISOLATE:
+    {
+        // Input: ULONG Action (0=OFF, 1=ON, 2=QUERY)
+        // Output: ULONG CurrentState
+        ULONG action = 2; // Default to query
+        BOOLEAN checkState;
+
+        // Verify Output Buffer
+        if (!buffer || outLen < sizeof(ULONG)) {
+            status = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+
+        // Read Input Action
+        if (inLen >= sizeof(ULONG)) {
+            action = *(PULONG)buffer;
+        }
+
+        if (action == 1) {
+            WFP_SetKillswitch(TRUE);
+        } else if (action == 0) {
+            WFP_SetKillswitch(FALSE);
+        }
+
+        // Return current state
+        checkState = WFP_GetKillswitchState();
+        *(PULONG)buffer = checkState ? 1 : 0;
+        bytesIO = sizeof(ULONG);
+        
+        status = STATUS_SUCCESS;
+        break;
+    }
+        
+    default:
+        status = STATUS_INVALID_DEVICE_REQUEST;
+        break;
+    }
+    
+    Irp->IoStatus.Status = status;
+    Irp->IoStatus.Information = bytesIO;
+    IoCompleteRequest(Irp, IO_NO_INCREMENT);
+    return status;
+}
+
+// Driver unload
+VOID DriverUnload(PDRIVER_OBJECT DriverObject)
+{
+    UNICODE_STRING symLink;
+    
+    KdPrint(("Arakne: Unloading...\n"));
+    
+    // Unregister WFP
+    UnregisterWFPCallouts();
+
+    // Unregister callbacks
     UnregisterProcessCallbacks();
+    
+    // Delete symbolic link
+    RtlInitUnicodeString(&symLink, SYMLINK_NAME);
+    IoDeleteSymbolicLink(&symLink);
+    
+    // Delete device
+    if (g_DeviceObject) {
+        IoDeleteDevice(g_DeviceObject);
+    }
+    
+    KdPrint(("Arakne: Unloaded successfully.\n"));
+}
+
+// Driver entry
+NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
+{
+    UNREFERENCED_PARAMETER(RegistryPath);
+    
+    NTSTATUS status;
+    UNICODE_STRING deviceName;
+    UNICODE_STRING symLink;
+    
+    KdPrint(("Arakne: DriverEntry - Kernel Module Loading (v1.1 Auto-Remediate)...\n"));
+    
+    // Create device
+    RtlInitUnicodeString(&deviceName, DEVICE_NAME);
+    status = IoCreateDevice(
+        DriverObject,
+        0,
+        &deviceName,
+        FILE_DEVICE_UNKNOWN,
+        FILE_DEVICE_SECURE_OPEN,
+        FALSE,
+        &g_DeviceObject
+    );
+    
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Arakne: IoCreateDevice failed: 0x%x\n", status));
+        return status;
+    }
+    
+    // Create symbolic link
+    RtlInitUnicodeString(&symLink, SYMLINK_NAME);
+    status = IoCreateSymbolicLink(&symLink, &deviceName);
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Arakne: IoCreateSymbolicLink failed: 0x%x\n", status));
+        IoDeleteDevice(g_DeviceObject);
+        return status;
+    }
+    
+    // Set dispatch routines
+    DriverObject->MajorFunction[IRP_MJ_CREATE] = DispatchCreate;
+    DriverObject->MajorFunction[IRP_MJ_CLOSE] = DispatchClose;
+    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DispatchDeviceControl;
+    DriverObject->DriverUnload = DriverUnload;
+    
+    // Register process callbacks
+    status = RegisterProcessCallbacks();
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("Arakne: RegisterProcessCallbacks failed (non-fatal): 0x%x\n", status));
+    }
+    
+    // Register WFP Callouts (Network Killswitch)
+    status = RegisterWFPCallouts(g_DeviceObject);
+    if (!NT_SUCCESS(status)) {
+         KdPrint(("Arakne: RegisterWFPCallouts failed: 0x%x\n", status));
+         // Proceeding without WFP is risky if user relies on it, but we don't want to crash.
+    }
+    
+    KdPrint(("Arakne: Driver loaded successfully! Ready for Auto-Remediation.\n"));
+    return STATUS_SUCCESS;
 }

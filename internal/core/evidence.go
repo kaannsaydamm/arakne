@@ -16,7 +16,7 @@ type BagHandler struct {
 
 func NewBagHandler(caseID string) *BagHandler {
 	// Create a dir for the case
-	path := filepath.Join(".", "evidence", caseID)
+	path := filepath.Join(EvidenceDir, caseID)
 	os.MkdirAll(path, 0755)
 	return &BagHandler{
 		CaseID:  caseID,

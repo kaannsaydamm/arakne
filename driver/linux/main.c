@@ -24,7 +24,7 @@
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Arakne");
-MODULE_DESCRIPTION("Arakne God Mode Linux Kernel Module");
+MODULE_DESCRIPTION("Arakne Linux Kernel Module");
 MODULE_VERSION("2.0");
 
 static int    majorNumber;
@@ -83,7 +83,7 @@ static struct file_operations fops =
 
 static int __init arakne_init(void) {
     int ret;
-    printk(KERN_INFO "Arakne: Initializing God Mode Kernel Module v2.0\n");
+    printk(KERN_INFO "Arakne: Initializing Kernel Module v2.0\n");
 
     // 1. Register Device
     majorNumber = register_chrdev(0, DEVICE_NAME, &fops);

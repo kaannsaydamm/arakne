@@ -33,6 +33,10 @@ func (u *UEFIScanner) Run() ([]core.Threat, error) {
 			Name:        "Secure Boot Disabled",
 			Description: "System is vulnerable to Bootkits/Rootkits. Attacker can load unsigned boot code.",
 			Level:       core.LevelCritical,
+			Type:        core.ThreatTypeConfig,
+			Details: map[string]interface{}{
+				"ManualInstructions": "Restart PC -> Enter BIOS/UEFI Setup (F2/Del) -> Security -> Secure Boot -> Enable.",
+			},
 		})
 	} else {
 		fmt.Println("[+] Secure Boot is ENABLED.")
@@ -46,6 +50,10 @@ func (u *UEFIScanner) Run() ([]core.Threat, error) {
 			Name:        "Legacy BIOS Mode",
 			Description: "System uses MBR boot which is vulnerable to bootkits like TDL4/Alureon.",
 			Level:       core.LevelHigh,
+			Type:        core.ThreatTypeConfig,
+			Details: map[string]interface{}{
+				"ManualInstructions": "This requires OS re-installation or MBR2GPT conversion. Switch BIOS mode to UEFI.",
+			},
 		})
 	}
 
@@ -57,6 +65,10 @@ func (u *UEFIScanner) Run() ([]core.Threat, error) {
 			Name:        "Test Signing Enabled",
 			Description: "Unsigned drivers can be loaded. Common in development but dangerous in production.",
 			Level:       core.LevelHigh,
+			Type:        core.ThreatTypeConfig,
+			Details: map[string]interface{}{
+				"FixCommand": "bcdedit /set testsigning off",
+			},
 		})
 	}
 
@@ -67,6 +79,10 @@ func (u *UEFIScanner) Run() ([]core.Threat, error) {
 			Name:        "DEP Disabled",
 			Description: "Data Execution Prevention is disabled, making exploitation easier.",
 			Level:       core.LevelMedium,
+			Type:        core.ThreatTypeConfig,
+			Details: map[string]interface{}{
+				"FixCommand": "bcdedit /set nx AlwaysOn",
+			},
 		})
 	}
 

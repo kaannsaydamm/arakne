@@ -1,5 +1,9 @@
+// WFP requires NDIS version macros BEFORE any NDIS/WFP headers
+#define NDIS_SUPPORT_NDIS6 1
+#define NDIS630 1
+
 #include <ntddk.h>
-#include <wdf.h>
+#include <ndis.h>
 #include <fwpsk.h>
 #include <fwpmk.h>
 #include <initguid.h>
@@ -9,17 +13,35 @@
 // WFP Network Killswitch
 // -------------------------------------------------------------------------
 
-// GUID for our callout. Using a dummy GUID for example.
-// Real usage requires uuidgen.
+// GUID for V4
 DEFINE_GUID(GUID_ARAKNE_CALLOUT_V4, 
     0xde39486a, 0xaa27, 0x4879, 0xb8, 0x5a, 0x22, 0xd0, 0x5d, 0x42, 0x47, 0x11);
+DEFINE_GUID(GUID_ARAKNE_FILTER_V4, 
+    0xde39486a, 0xaa27, 0x4879, 0xb8, 0x5a, 0x22, 0xd0, 0x5d, 0x42, 0x47, 0x22);
+
+// GUID for V6
+DEFINE_GUID(GUID_ARAKNE_CALLOUT_V6, 
+    0xde39486a, 0xaa27, 0x4879, 0xb8, 0x5a, 0x22, 0xd0, 0x5d, 0x42, 0x47, 0x33);
+DEFINE_GUID(GUID_ARAKNE_FILTER_V6, 
+    0xde39486a, 0xaa27, 0x4879, 0xb8, 0x5a, 0x22, 0xd0, 0x5d, 0x42, 0x47, 0x44);
 
 // Global Switch
 BOOLEAN g_NetworkIsolate = FALSE;
 
+// Helper functions (exposed to main.c)
+void WFP_SetKillswitch(BOOLEAN enable) {
+    g_NetworkIsolate = enable;
+    KdPrint(("Arakne: [WFP] Killswitch state changed to: %d\n", enable));
+}
+
+BOOLEAN WFP_GetKillswitchState() {
+    return g_NetworkIsolate;
+}
+
 // Engine Handle
 HANDLE g_EngineHandle = NULL;
-UINT32 g_CalloutId = 0;
+UINT32 g_CalloutIdV4 = 0;
+UINT32 g_CalloutIdV6 = 0;
 
 // Callout Routine: ClassifyFn
 void ArakneClassifyFn(
@@ -39,13 +61,10 @@ void ArakneClassifyFn(
     UNREFERENCED_PARAMETER(filter);
     UNREFERENCED_PARAMETER(flowContext);
 
-    // Default: Permit
-    
     if (g_NetworkIsolate) {
         // KILL SWITCH ENGAGED
         classifyOut->actionType = FWP_ACTION_BLOCK;
         classifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE; // Prevent others from permitting
-        // KdPrint(("Arakne: [NET] Valid Packet BLOCKED due to Lockdown.\n"));
     } else {
         classifyOut->actionType = FWP_ACTION_PERMIT;
     }
@@ -74,7 +93,39 @@ VOID FlowDeleteFn(
     UNREFERENCED_PARAMETER(flowContext);
 }
 
-NTSTATUS RegisterWFPCallouts(WDFDEVICE Device)
+VOID UnregisterWFPCallouts()
+{
+    KdPrint(("Arakne: Unregistering WFP Callouts...\n"));
+
+    if (g_EngineHandle) {
+        FwpmTransactionBegin0(g_EngineHandle, 0);
+
+        // Delete Filters
+        FwpmFilterDeleteByKey0(g_EngineHandle, &GUID_ARAKNE_FILTER_V4);
+        FwpmFilterDeleteByKey0(g_EngineHandle, &GUID_ARAKNE_FILTER_V6);
+
+        // Delete Callouts from Engine
+        FwpmCalloutDeleteByKey0(g_EngineHandle, &GUID_ARAKNE_CALLOUT_V4);
+        FwpmCalloutDeleteByKey0(g_EngineHandle, &GUID_ARAKNE_CALLOUT_V6);
+
+        FwpmTransactionCommit0(g_EngineHandle);
+        
+        // Unregister Callouts from WFP (Kernel)
+        if (g_CalloutIdV4) {
+             FwpsCalloutUnregisterById0(g_CalloutIdV4);
+             g_CalloutIdV4 = 0;
+        }
+        if (g_CalloutIdV6) {
+             FwpsCalloutUnregisterById0(g_CalloutIdV6);
+             g_CalloutIdV6 = 0;
+        }
+        
+        FwpmEngineClose0(g_EngineHandle);
+        g_EngineHandle = NULL;
+    }
+}
+
+NTSTATUS RegisterWFPCallouts(PDEVICE_OBJECT DeviceObject)
 {
     NTSTATUS status;
     FWPS_CALLOUT0 callout = {0};
@@ -82,7 +133,7 @@ NTSTATUS RegisterWFPCallouts(WDFDEVICE Device)
     FWPM_FILTER0 filter = {0};
     FWPM_SESSION0 session = {0};
 
-    UNREFERENCED_PARAMETER(Device);
+    UNREFERENCED_PARAMETER(DeviceObject);
     
     // 1. Open Engine
     session.flags = FWPM_SESSION_FLAG_DYNAMIC;
@@ -92,49 +143,58 @@ NTSTATUS RegisterWFPCallouts(WDFDEVICE Device)
         return status;
     }
 
-    // 2. Register Callout with BFE (Base Filtering Engine)
-    callout.calloutKey = GUID_ARAKNE_CALLOUT_V4;
+    // 2. Register Callouts
     callout.classifyFn = ArakneClassifyFn;
     callout.notifyFn = NotifyFn;
     callout.flowDeleteFn = FlowDeleteFn;
-    // callout.flags = 0;
+    
+    // Register V4
+    callout.calloutKey = GUID_ARAKNE_CALLOUT_V4;
+    status = FwpsCalloutRegister0(DeviceObject, &callout, &g_CalloutIdV4);
+    if (!NT_SUCCESS(status)) return status;
 
-    // Use DeviceObject from WDFDEVICE if needed for registration, but basic example uses global.
-    // status = FwpsCalloutRegister0(DeviceObject, &callout, &g_CalloutId); 
-    // Simplified: Requires PDEVICE_OBJECT. WdfDeviceWdmGetDeviceObject(Device)
-    PDEVICE_OBJECT wdmDevice = WdfDeviceWdmGetDeviceObject(Device);
-    status = FwpsCalloutRegister0(wdmDevice, &callout, &g_CalloutId);
+    // Register V6
+    callout.calloutKey = GUID_ARAKNE_CALLOUT_V6;
+    status = FwpsCalloutRegister0(DeviceObject, &callout, &g_CalloutIdV6);
+    if (!NT_SUCCESS(status)) return status;
 
-    if (!NT_SUCCESS(status)) {
-         KdPrint(("Arakne: FwpsCalloutRegister0 Failed 0x%x\n", status));
-         return status;
-    }
 
-    // 3. Add Callout to Engine
+    // 3. Add Callouts to Engine
     FwpmTransactionBegin0(g_EngineHandle, 0);
 
+    // V4 Callout
     mCallout.calloutKey = GUID_ARAKNE_CALLOUT_V4;
-    mCallout.displayData.name = L"Arakne Network Killswitch";
-    mCallout.applicableLayer = FWPM_LAYER_ALE_AUTH_CONNECT_V4; // Outbound Connect V4
-    
-    status = FwpmCalloutAdd0(g_EngineHandle, &mCallout, NULL, NULL);
-    if (!NT_SUCCESS(status)) {
-        // If it exists, that's fine (STATUS_FWP_ALREADY_EXISTS)
-         KdPrint(("Arakne: FwpmCalloutAdd0 Status 0x%x\n", status));
-    }
+    mCallout.displayData.name = L"Arakne Outbound V4";
+    mCallout.applicableLayer = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
+    FwpmCalloutAdd0(g_EngineHandle, &mCallout, NULL, NULL);
 
-    // 4. Add Filter that uses the callout
-    filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
-    filter.displayData.name = L"Arakne Outbound Filter";
-    filter.action.type = FWP_ACTION_CALLOUT_TERMINATING; // or INSPECTION
-    filter.action.calloutKey = GUID_ARAKNE_CALLOUT_V4;
+    // V6 Callout
+    mCallout.calloutKey = GUID_ARAKNE_CALLOUT_V6;
+    mCallout.displayData.name = L"Arakne Outbound V6";
+    mCallout.applicableLayer = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
+    FwpmCalloutAdd0(g_EngineHandle, &mCallout, NULL, NULL);
+
+    // 4. Add Filters
     filter.weight.type = FWP_UINT8;
-    filter.weight.uint8 = 0xF; // High weight
-    
-    status = FwpmFilterAdd0(g_EngineHandle, &filter, NULL, NULL);
+    filter.weight.uint8 = 0xF; 
+    filter.action.type = FWP_ACTION_CALLOUT_TERMINATING;
+
+    // V4 Filter
+    filter.filterKey = GUID_ARAKNE_FILTER_V4;
+    filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V4;
+    filter.displayData.name = L"Arakne Filter V4";
+    filter.action.calloutKey = GUID_ARAKNE_CALLOUT_V4;
+    FwpmFilterAdd0(g_EngineHandle, &filter, NULL, NULL);
+
+    // V6 Filter
+    filter.filterKey = GUID_ARAKNE_FILTER_V6;
+    filter.layerKey = FWPM_LAYER_ALE_AUTH_CONNECT_V6;
+    filter.displayData.name = L"Arakne Filter V6";
+    filter.action.calloutKey = GUID_ARAKNE_CALLOUT_V6;
+    FwpmFilterAdd0(g_EngineHandle, &filter, NULL, NULL);
     
     FwpmTransactionCommit0(g_EngineHandle);
 
-    KdPrint(("Arakne: WFP Killswitch Registered.\n"));
+    KdPrint(("Arakne: WFP Killswitch Registered (IPv4 + IPv6).\n"));
     return STATUS_SUCCESS;
 }

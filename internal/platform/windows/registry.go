@@ -81,79 +81,66 @@ func (r *RegistryParser) checkRunKeys() {
 			suspicious := false
 			reason := ""
 
-			// Whitelist for known legitimate apps that run from AppData
-			legitApps := []string{
-				"discord",
-				"slack",
-				"notion",
-				"spotify",
-				"steam",
-				"bluestacks",
-				"microsoft teams",
-				"zoom",
-				"brave",
-				"chrome",
-				"firefox",
-				"opera",
-				"vivaldi",
-				"telegram",
-				"whatsapp",
-				"signal",
-				"dropbox",
-				"onedrive",
-				"google drive",
-				"nvidia",
-				"amd",
-				"msi",
-				"logitech",
-				"razer",
-				"corsair",
-				"steelseries",
-				"openvpn",
-				"nordvpn",
-				"expressvpn",
-				"anydesk",
-				"teamviewer",
+			// Extract executable path from the value
+			execPath := val
+			if strings.HasPrefix(val, `"`) {
+				// Quoted path
+				endQuote := strings.Index(val[1:], `"`)
+				if endQuote > 0 {
+					execPath = val[1 : endQuote+1]
+				}
+			} else {
+				// Unquoted - take until first space (args)
+				if spaceIdx := strings.Index(val, " "); spaceIdx > 0 {
+					execPath = val[:spaceIdx]
+				}
 			}
 
-			// Check if it's a legitimate app
-			isLegit := false
-			for _, app := range legitApps {
-				if strings.Contains(lower, app) {
-					isLegit = true
+			// Verify if executable is signed by trusted publisher
+			trusted, sigReason := IsExecutableTrusted(execPath)
+
+			if trusted {
+				// Signed by trusted publisher - skip
+				continue
+			}
+
+			// Not trusted - check for suspicious patterns
+			susPatterns := map[string]string{
+				"\\temp\\":             "Runs from Temp directory",
+				"powershell -enc":      "Encoded PowerShell",
+				"powershell -e ":       "Encoded PowerShell",
+				"powershell -w hidden": "Hidden PowerShell",
+				"cmd /c":               "CMD execution",
+				"mshta":                "MSHTA execution",
+				"wscript":              "WSH script",
+				"cscript":              "CScript execution",
+				"regsvr32 /s /n":       "Regsvr32 bypass",
+				"rundll32 javascript":  "Rundll32 script",
+				"\\public\\":           "Runs from Public folder",
+				"http://":              "Downloads from URL",
+				"https://pastebin":     "Downloads from Pastebin",
+			}
+
+			for pattern, desc := range susPatterns {
+				if strings.Contains(lower, pattern) {
+					suspicious = true
+					reason = desc
 					break
 				}
 			}
 
-			// Only check suspicious patterns if NOT a known legit app
-			if !isLegit {
-				susPatterns := map[string]string{
-					"\\temp\\":            "Runs from Temp directory",
-					"powershell -enc":     "Encoded PowerShell",
-					"powershell -e ":      "Encoded PowerShell",
-					"cmd /c":              "CMD execution",
-					"mshta":               "MSHTA execution",
-					"wscript":             "WSH script",
-					"cscript":             "CScript execution",
-					"regsvr32 /s /n":      "Regsvr32 bypass",
-					"rundll32 javascript": "Rundll32 script",
-					"\\public\\":          "Runs from Public folder",
-					"\\programdata\\":     "Runs from ProgramData (non-installer)",
-					"http://":             "Downloads from URL",
-					"https://pastebin":    "Downloads from Pastebin",
-				}
-
-				for pattern, desc := range susPatterns {
-					if strings.Contains(lower, pattern) {
-						suspicious = true
-						reason = desc
-						break
-					}
+			// If not signed and from unusual location, flag it
+			if !suspicious && sigReason == "unsigned" {
+				if strings.Contains(lower, "\\appdata\\") ||
+					strings.Contains(lower, "\\programdata\\") {
+					suspicious = true
+					reason = "Unsigned executable from AppData/ProgramData"
 				}
 			}
 
 			if suspicious {
 				fmt.Printf("    [!] Suspicious: %s\\%s = %s\n", rk.name, name, val)
+				fmt.Printf("        Signature: %s\n", sigReason)
 				r.Threats = append(r.Threats, core.Threat{
 					Name:        "Suspicious Auto-Run Entry",
 					Description: fmt.Sprintf("%s: %s", reason, name),

@@ -5,32 +5,55 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	"arakne/internal/core"
+	"arakne/internal/intelligence"
 	"arakne/internal/platform/darwin"
 	"arakne/internal/platform/linux"
 	"arakne/internal/platform/windows"
+	"arakne/internal/stages"
 	"arakne/internal/utils"
 )
-
-const banner = `
-    ___               __            
-   ╱   │  _________ _╱ ╱______  ___ 
-  ╱ ╱│ │ ╱ ___╱ __ ╱ ╱╱_╱ __ ╲╱ _ ╲
- ╱ ___ │╱ ╱  ╱ ╱_╱ ╱ ,< ╱ ╱ ╱ ╱  __╱
-╱_╱  │_╱_╱   ╲__,_╱_╱│_╱_╱ ╱_╱╲___╱ 
-                                    
-  :: Arakne v1.0.0 :: By Kaan Saydam, 2026.
-`
 
 var scanner = bufio.NewScanner(os.Stdin)
 
 var remediator *core.RemediationManager
 
 func main() {
+	// Global Panic Handler to prevent instant crash
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("\n[!!!] CRITICAL ERROR (PANIC) [!!!]")
+			fmt.Printf("Error: %v\n", r)
+			fmt.Println("Stack Trace:")
+			debug.PrintStack()
+			fmt.Println("\nPress Enter to exit...")
+			bufio.NewReader(os.Stdin).ReadString('\n')
+		}
+	}()
+
+	banner := `
+    ___               __            
+   ╱   │  _________ _╱ ╱______  ___ 
+  ╱ ╱│ │ ╱ ___╱ __ ╱ ╱╱_╱ __ ╲╱ _ ╲
+ ╱ ___ │╱ ╱  ╱ ╱_╱ ╱ ,< ╱ ╱ ╱ ╱  __╱
+╱_╱  │_╱_╱   ╲__,_╱_╱│_╱_╱ ╱_╱╲___╱ 
+                                    
+  :: Arakne v1.1.0 :: By Kaan Saydam, 2026.
+  [+] Running with ELEVATED privileges. Full power unlocked.
+`
+	// Check Admin
+	if !utils.IsAdmin() {
+		fmt.Println("[-] Error: Arakne requires Administrator privileges.")
+		fmt.Println("    Right-click -> Run as Administrator")
+		time.Sleep(5 * time.Second)
+		os.Exit(1)
+	}
 	// CLI Flags
 	nuke := flag.Bool("nuke", false, "Aggressive Nuke Mode (No questions)")
 	help := flag.Bool("help", false, "Show usage")
@@ -52,7 +75,19 @@ func main() {
 
 	// 2. Initial Dependency/Driver Check
 	fmt.Println("[*] System initializing...")
+	// Ensure "C:\Arakne" and subdirs exist
+	if err := core.EnsureDirectories(); err != nil {
+		fmt.Printf("[!] Fatal: Failed to initialize directories: %v\n", err)
+		fmt.Println("    Please run as Administrator.")
+		os.Exit(1)
+	}
+
 	checkAndLoadDrivers(runtime.GOOS)
+
+	// Initialize Intelligence Database (Hash Cache)
+	fmt.Println("[*] Loading Intelligence Database...")
+	intelligence.InitHashDatabase()
+
 	time.Sleep(1 * time.Second)
 
 	// 3. Enable Self-Defense (Protect our own process)
@@ -106,25 +141,46 @@ func handleOSMenu(osType string) {
 	for {
 		clearScreen()
 		fmt.Printf(":: Arakne > %s Mode ::\n\n", strings.Title(osType))
-		fmt.Println("=== SCANNING ===")
-		fmt.Println("1. Quick Scan (Browser/Logs/Drivers)")
-		fmt.Println("2. Deep Dive (MFT/Memory/UEFI)")
-		fmt.Println("3. YARA Scan")
-		fmt.Println("4. COMBOFIX MODE (Nostalgia) ★")
-		fmt.Println("\n=== REMEDIATION ===")
-		fmt.Println("5. Kill Process (Kernel Mode)")
-		fmt.Println("6. Quarantine File")
-		fmt.Println("\n=== CONFIGURATION ===")
-		fmt.Println("7. Whitelist Management")
-		fmt.Println("8. Network Killswitch (WFP)")
-		fmt.Println("\n=== EVIDENCE & REPORTING ===")
-		fmt.Println("9. View Evidence Bag")
-		fmt.Println("10. Seal Evidence (ZIP)")
-		fmt.Println("11. Generate Report (JSON/HTML)")
-		fmt.Println("\n=== DANGER ZONE ===")
-		fmt.Println("12. NUKE MODE (Toggle)")
-		fmt.Println("\n13. Back to Main Menu")
-		fmt.Print("\nSelect Option [1-13]: ")
+		fmt.Println("=== PRIMARY OPERATIONS ===")
+		fmt.Println("1. ** SURGICAL SCAN (ComboFix Mode) **")
+		fmt.Println("   [Automated: Restore Point -> Temp Clean -> Full Scan -> Remediation]")
+		fmt.Println("")
+		fmt.Println("=== UTILITIES ===")
+		fmt.Println("2. Toolbox (Manual Tools)")
+		fmt.Println("3. Back to Main Menu")
+		fmt.Print("\nSelect Option [1-3]: ")
+
+		choice := readInput()
+
+		switch choice {
+		case "1":
+			// Surgical Mode
+			stages.RunSurgicalScan()
+			waitForKey()
+		case "2":
+			runToolbox(osType)
+		case "3":
+			return
+		default:
+			fmt.Println("Invalid selection.")
+			time.Sleep(1 * time.Second)
+		}
+	}
+}
+
+func runToolbox(osType string) {
+	for {
+		clearScreen()
+		fmt.Printf(":: Arakne > %s > Toolbox ::\n\n", strings.Title(osType))
+		fmt.Println("1. Quick Scan (Lightweight)")
+		fmt.Println("2. Process Killer (Kernel Mode)")
+		fmt.Println("3. Quarantine Manager")
+		fmt.Println("4. Whitelist Manager")
+		fmt.Println("5. Network Killswitch (Toggle)")
+		fmt.Println("6. Evidence Bag Utils")
+		fmt.Println("7. Manual Hash Check")
+		fmt.Println("8. Back")
+		fmt.Print("\nSelect Option [1-8]: ")
 
 		choice := readInput()
 
@@ -132,32 +188,33 @@ func handleOSMenu(osType string) {
 		case "1":
 			runTask(osType, "Quick Scan", false)
 		case "2":
-			runTask(osType, "Deep Dive", true)
-		case "3":
-			runTask(osType, "YARA Scan", false)
-		case "4":
-			runCombofixMode(osType)
-		case "5":
 			runProcessKiller()
-		case "6":
+		case "3":
 			runQuarantine()
-		case "7":
+		case "4":
 			runWhitelistManager()
-		case "8":
+		case "5":
 			runNetworkKillswitch()
-		case "9":
-			viewEvidenceBag()
-		case "10":
-			sealEvidenceBag()
-		case "11":
-			generateReport()
-		case "12":
-			runNukeMode()
-		case "13":
+		case "6":
+			// Submenu for evidence? Or just view/seal
+			fmt.Println("\n[1] View Bag  [2] Seal Bag")
+			sub := readInput()
+			switch sub {
+			case "1":
+				viewEvidenceBag()
+			case "2":
+				sealEvidenceBag()
+			}
+		case "7":
+			runHashCheckTool()
+		case "8":
 			return
 		default:
 			fmt.Println("Invalid selection.")
-			time.Sleep(1 * time.Second)
+			time.Sleep(500 * time.Millisecond)
+		}
+		if choice != "8" {
+			waitForKey()
 		}
 	}
 }
@@ -172,7 +229,7 @@ func runTask(osType, taskName string, requireElevated bool) {
 		return
 	}
 
-	fmt.Println("[+] Initializing God Mode Kernel Driver...")
+	fmt.Println("[+] Initializing Kernel Driver...")
 	time.Sleep(500 * time.Millisecond)
 
 	fmt.Print("[?] Ready to start used defined operation. Proceed? (y/n): ")
@@ -185,7 +242,12 @@ func runTask(osType, taskName string, requireElevated bool) {
 	fmt.Println("[+] Executing...")
 
 	// Initialize Remediation Manager
-	remediationMgr := core.NewRemediationManager(false)
+	// Initialize Remediation Manager (Auto Mode aka ComboFix Style)
+	remediationMgr := core.NewRemediationManager(true)
+	// Connect Online Intelligence
+	if intelligence.GlobalDB != nil {
+		remediationMgr.Verifier = intelligence.GlobalDB.LookupHashOnline
+	}
 
 	if osType == "windows" && taskName == "YARA Scan" {
 		fmt.Println("\n[*] Running YARA Scan...")
@@ -239,7 +301,7 @@ func runTask(osType, taskName string, requireElevated bool) {
 		} else {
 			fmt.Printf("[+] MFT Scan Complete. Found %d threats.\n", len(threats))
 			for _, t := range threats {
-				remediator.HandleThreat(t)
+				remediationMgr.HandleThreat(t)
 			}
 		}
 
@@ -326,13 +388,45 @@ func checkAndLoadDrivers(osName string) {
 		fmt.Printf("[*] Auto-Loading Driver: %s\n", driverName)
 
 		loader := windows.NewDriverLoader(driverName)
+		fmt.Printf("[*] Checking for driver file: %s\n", loader.DriverPath)
+
 		err := loader.Load()
-		if err != nil {
-			fmt.Printf("[-] Driver Load Failed: %v\n", err)
-			fmt.Println("    [NOTE] To enable Kernel Mode, place 'arakne_wfp.sys' in this directory.")
-			fmt.Println("           If you don't have it, Arakne will run in User Mode (Standard).")
+		if err == nil {
+			fmt.Println("[+] Driver Communication Established. Kernel Mode ACTIVE.")
+			// Optional: Ask to reinstall if user wants repair?
+			// For now, assume if it works, it works.
+			return
+		}
+
+		fmt.Printf("[-] Driver Load Failed: %v\n", err)
+
+		// Interactive Prompt
+		fmt.Print("\n[?] Kernel Driver is MISSING or DISABLED. Install/Repair now? (y/n): ")
+		if readInput() == "y" {
+			fmt.Println("[*] Launching Driver Installer...")
+
+			installScript := "driver\\windows\\install.ps1"
+			// Execute PowerShell with UI visible so user can see progress/errors
+			cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", installScript)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("[!] Installation Failed: %v\n", err)
+				fmt.Println("    [NOTE] You can run 'driver\\windows\\install.ps1' manually.")
+			} else {
+				fmt.Println("\n[+] Installer finished. Retrying connection...")
+				time.Sleep(2 * time.Second)
+				if err := loader.Load(); err != nil {
+					fmt.Printf("[-] Retry Failed: %v\n", err)
+					fmt.Println("    [!] Arakne will run in User Mode (Standard).")
+				} else {
+					fmt.Println("[+] Driver Loaded Successfully!")
+				}
+			}
 		} else {
-			fmt.Println("[+] Driver Communication Established.")
+			fmt.Println("[-] Auto-Install declined. Running in User Mode.")
 		}
 		return
 

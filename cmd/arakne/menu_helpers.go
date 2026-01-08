@@ -2,8 +2,11 @@ package main
 
 import (
 	"arakne/internal/core"
+	"arakne/internal/intelligence"
 	"arakne/internal/platform/windows"
 	"fmt"
+	"net"
+	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -23,7 +26,7 @@ const (
 )
 
 // Helper to send IOCTL to driver
-func sendIOCTL(code uint32, input unsafe.Pointer, inputSize uint32) error {
+func sendIOCTL(code uint32, input unsafe.Pointer, inputSize uint32, output unsafe.Pointer, outputSize uint32) error {
 	handle, err := syscall.CreateFile(
 		syscall.StringToUTF16Ptr("\\\\.\\Arakne"),
 		syscall.GENERIC_READ|syscall.GENERIC_WRITE,
@@ -38,7 +41,7 @@ func sendIOCTL(code uint32, input unsafe.Pointer, inputSize uint32) error {
 	err = syscall.DeviceIoControl(
 		handle, code,
 		(*byte)(input), inputSize,
-		nil, 0,
+		(*byte)(output), outputSize,
 		&bytesReturned, nil,
 	)
 	return err
@@ -54,7 +57,7 @@ func EnableSelfDefense() error {
 	pid := uint32(syscall.Getpid())
 	req := SelfDefenseRequest{ProtectionLevel: 1, ProtectedPID: pid}
 
-	err := sendIOCTL(IOCTL_ARAKNE_SELF_DEFENSE, unsafe.Pointer(&req), uint32(unsafe.Sizeof(req)))
+	err := sendIOCTL(IOCTL_ARAKNE_SELF_DEFENSE, unsafe.Pointer(&req), uint32(unsafe.Sizeof(req)), nil, 0)
 	if err != nil {
 		return err
 	}
@@ -139,50 +142,84 @@ func runWhitelistManager() {
 func runNetworkKillswitch() {
 	clearScreen()
 	fmt.Println("=== NETWORK KILLSWITCH (WFP) ===")
-	fmt.Println("[!] WARNING: This will block ALL network traffic system-wide.")
-	fmt.Print("Activate killswitch? (y/n): ")
 
-	if readInput() != "y" {
+	// 1. Check current driver state
+	var currentState uint32
+	queryAction := uint32(2) // 2 = Query
+
+	err := sendIOCTL(IOCTL_ARAKNE_NETWORK_ISOLATE,
+		unsafe.Pointer(&queryAction), 4,
+		unsafe.Pointer(&currentState), 4)
+
+	if err != nil {
+		fmt.Printf("[-] Failed to query driver: %v\n", err)
+		fmt.Println("    [NOTE] Driver may not be loaded.")
+		waitForKey()
 		return
 	}
 
-	type NetworkRequest struct {
-		Isolate uint32 // BOOLEAN in C is typically 1 byte, but we align to 4
+	// 2. Check actual connectivity
+	conn, _ := net.DialTimeout("tcp", "8.8.8.8:53", 2*time.Second)
+	isConnected := (conn != nil)
+	if conn != nil {
+		conn.Close()
 	}
-	req := NetworkRequest{Isolate: 1}
 
-	fmt.Println("[*] Sending IOCTL to Kernel Driver...")
-	err := sendIOCTL(IOCTL_ARAKNE_NETWORK_ISOLATE, unsafe.Pointer(&req), uint32(unsafe.Sizeof(req)))
-	if err != nil {
-		fmt.Printf("[-] Failed: %v\n", err)
-		fmt.Println("    [NOTE] Driver may not be loaded. Run as admin with driver installed.")
+	// 3. Logic
+	if currentState == 1 {
+		fmt.Println("\n[!] STATUS: KILLSWITCH ACTIVE (Network BLOCKED via Driver)")
+		fmt.Println("\n[?] Do you want to RESTORE network access?")
+		fmt.Println("    This will unblock outbound connections.")
+		fmt.Print("    Restore? (y/n): ")
+
+		if readInput() == "y" {
+			action := uint32(0) // OFF
+			sendIOCTL(IOCTL_ARAKNE_NETWORK_ISOLATE, unsafe.Pointer(&action), 4, unsafe.Pointer(&currentState), 4)
+			if currentState == 0 {
+				fmt.Println("\n[+] Network Restored! Killswitch DISENGAGED.")
+			} else {
+				fmt.Println("\n[-] Failed to disable killswitch.")
+			}
+		}
 	} else {
-		fmt.Println("[+] Network Killswitch ACTIVATED!")
-		fmt.Println("[!] All outbound connections are now BLOCKED.")
-		fmt.Println("    Run again with 'n' or restart to disable.")
+		// Driver is OFF
+		fmt.Println("\n[+] STATUS: Killswitch DISENGAGED (Driver Allowing Traffic)")
+
+		if isConnected {
+			fmt.Println("    Connection: ONLINE (Google DNS reachable)")
+			fmt.Println("\n[!] Do you want to ACTIVATE the Killswitch?")
+			fmt.Println("    This will BLOCK ALL outbound traffic immediately.")
+			fmt.Print("    Activate? (y/n): ")
+
+			if readInput() == "y" {
+				action := uint32(1) // ON
+				sendIOCTL(IOCTL_ARAKNE_NETWORK_ISOLATE, unsafe.Pointer(&action), 4, unsafe.Pointer(&currentState), 4)
+				if currentState == 1 {
+					fmt.Println("\n[+] KILLSWITCH ACTIVATED! Network Severed.")
+				} else {
+					fmt.Println("\n[-] Failed to activate killswitch.")
+				}
+			}
+		} else {
+			fmt.Println("    Connection: OFFLINE (No route to Google DNS)")
+			fmt.Println("\n[i] It seems your network is already down/unplugged.")
+			fmt.Println("    You can still activate the driver lock to be sure.")
+			fmt.Print("    Activate lock? (y/n): ")
+
+			if readInput() == "y" {
+				action := uint32(1) // ON
+				sendIOCTL(IOCTL_ARAKNE_NETWORK_ISOLATE, unsafe.Pointer(&action), 4, unsafe.Pointer(&currentState), 4)
+				if currentState == 1 {
+					fmt.Println("\n[+] KILLSWITCH ACTIVATED! Lock engaged.")
+				}
+			}
+		}
 	}
+
 	waitForKey()
 }
 
-func runNukeMode() {
-	clearScreen()
-	fmt.Println("=== NUKE MODE ===")
-	fmt.Println("[!] DANGER: This enables aggressive blocking of ALL non-whitelisted processes.")
-	fmt.Print("Toggle Nuke Mode? (y/n): ")
-
-	if readInput() != "y" {
-		return
-	}
-
-	fmt.Println("[*] Sending IOCTL to Kernel Driver...")
-	err := sendIOCTL(IOCTL_ARAKNE_NUKE_MODE, nil, 0)
-	if err != nil {
-		fmt.Printf("[-] Failed: %v\n", err)
-	} else {
-		fmt.Println("[+] Nuke Mode TOGGLED!")
-	}
-	waitForKey()
-}
+// runNukeMode removed (merged into standard scan)
 
 func viewEvidenceBag() {
 	clearScreen()
@@ -365,55 +402,139 @@ func runCombofixMode(_ string) {
 		fmt.Println()
 	}
 
-	// Prompt for remediation
-	fmt.Println(strings.Repeat("─", 60))
-	fmt.Println("[?] Would you like to quarantine the detected threats?")
-	fmt.Print("    Enter 'y' to review each, 'n' to skip, 'a' for all: ")
-
-	choice := strings.ToLower(readInput())
-
-	if choice == "n" {
-		fmt.Println("\n[*] Skipping remediation. Threats remain on system.")
-		fmt.Println("[*] You can quarantine manually from the main menu.")
-		waitForKey()
-		return
-	}
-
-	if choice == "a" {
-		// Quarantine all
-		fmt.Println("\n[*] Quarantining all threats...")
-		for _, threat := range allThreats {
-			if threat.FilePath != "" {
-				core.NewQuarantineJail("").Lockup(threat.FilePath)
-				fmt.Printf("    [+] Quarantined: %s\n", threat.FilePath)
-			}
-		}
-		fmt.Println("\n[+] All file-based threats have been quarantined.")
-		waitForKey()
-		return
-	}
-
-	// Review each threat
-	fmt.Println("\n[*] Reviewing threats one by one...")
-	for _, threat := range allThreats {
-		if threat.FilePath == "" {
-			continue
-		}
-
-		fmt.Printf("\n[THREAT] %s\n", threat.Name)
-		fmt.Printf("  Path: %s\n", threat.FilePath)
-		fmt.Printf("  Level: %v\n", threat.Level)
-		fmt.Print("  Quarantine this file? (y/n): ")
-
-		if readInput() == "y" {
-			core.NewQuarantineJail("").Lockup(threat.FilePath)
-			fmt.Println("  [+] Quarantined!")
-		} else {
-			fmt.Println("  [-] Skipped.")
+	// Auto-Remediate All Threats found in ComboFix Mode
+	if len(allThreats) > 0 {
+		fmt.Println("\n[*] Initiating ComboFix Auto-Clean...")
+		remediator := core.NewRemediationManager(true) // Aggressive
+		for _, t := range allThreats {
+			remediator.HandleThreat(t)
 		}
 	}
 
 	fmt.Println("\n[+] Combofix Mode complete!")
-	fmt.Println("[*] Remember to run a normal antivirus scan as well.")
+	waitForKey()
+}
+
+// runScanner executes the selected scanner modules with AUTO-REMEDIATION (Standard Scanner Wrapper)
+func runScanner(scannerName string, scanner func() []core.Threat) {
+	fmt.Printf("\n[*] Starting %s...\n", scannerName)
+
+	// ComboFix Style: Always Aggressive/Automatic
+	remediator := core.NewRemediationManager(true)
+
+	threats := scanner()
+
+	if len(threats) == 0 {
+		fmt.Printf("[+] %s: System Clean. No threats found.\n", scannerName)
+	} else {
+		for _, t := range threats {
+			remediator.HandleThreat(t)
+		}
+	}
+	waitForKey()
+}
+
+func runHashCheckTool() {
+	clearScreen()
+	fmt.Println("=== HASH CHECK TOOL (TIERED VERIFICATION) ===")
+	fmt.Println("Check a File or Hash against:")
+	fmt.Println("1. Local Whitelist (Fast)")
+	fmt.Println("2. Digital Signature (Cert)")
+	fmt.Println("3. MalwareBazaar (Known Bad)")
+	fmt.Println("4. Circl.lu (Known Good)")
+	fmt.Println()
+	fmt.Print("Enter File Path or SHA256 Hash: ")
+
+	input := readInput()
+	if input == "" {
+		return
+	}
+
+	// Check if file
+	isFile := false
+	if _, err := os.Stat(input); err == nil {
+		isFile = true
+	}
+
+	hash := input
+	if isFile {
+		h, err := intelligence.CalculateFileSHA256(input)
+		if err != nil {
+			fmt.Printf("[-] Error hashing file: %v\n", err)
+			waitForKey()
+			return
+		}
+		hash = h
+		fmt.Printf("\n[+] File Hash (SHA256): %s\n", hash)
+	} else {
+		// Validation for manual hash input
+		hash = strings.TrimSpace(hash)
+		if len(hash) != 64 {
+			// Not a SHA256. Could be MD5 (32)?
+			// Our DB assumes SHA256 keys.
+			// Warn user.
+			fmt.Println("\n[-] Invalid Hash Format.")
+			fmt.Println("    Please provide a valid SHA256 (64 characters) or a File Path.")
+			if len(hash) == 32 {
+				fmt.Println("    [i] MD5 detected, but this tool currently requires SHA256.")
+			}
+			waitForKey()
+			return
+		}
+	}
+
+	// 1. Local Whitelist
+	fmt.Println("\n[1] Checking Local Whitelist/Blacklist...")
+	if intelligence.GlobalDB != nil {
+		if isGood, desc := intelligence.GlobalDB.IsKnownGood(hash); isGood {
+			fmt.Printf("   [+] CLEAN: Found in Local Whitelist (%s)\n", desc)
+			waitForKey()
+			return
+		}
+		// Also check local known bad (which is MB cache)
+		if isBad, name := intelligence.GlobalDB.IsKnownBad(hash); isBad {
+			fmt.Printf("   [!] MALICIOUS: %s (Local Cache)\n", name)
+			waitForKey()
+			return
+		}
+	}
+	fmt.Println("   [-] Not in local database.")
+
+	// 2. Certificate Check (If File)
+	if isFile {
+		fmt.Println("\n[2] Checking Digital Signature...")
+		isTrusted, _ := windows.IsExecutableTrusted(input)
+		if isTrusted {
+			fmt.Println("   [+] CLEAN: File is Digitally Signed & Trusted.")
+			fmt.Println("   [i] Trusting signature. Skipping cloud checks.")
+			waitForKey()
+			return
+		} else {
+			fmt.Println("   [-] Invalid or Missing Signature.")
+		}
+	} else {
+		fmt.Println("\n[2] Checking Digital Signature... [SKIPPED: Not a file]")
+	}
+
+	// 3 & 4. Cloud Checks (MalwareBazaar & Circl)
+	fmt.Println("\n[3] Checking MalwareBazaar (Known Bad)...")
+	fmt.Println("[4] Checking Circl.lu (Known Good)...")
+
+	verdict := intelligence.Global.VerifyHash(hash)
+
+	if verdict.IsKnownBad {
+		fmt.Printf("\n   [!] MALICIOUS: %s (%s)\n", verdict.MalwareName, verdict.Source)
+		waitForKey()
+		return
+	}
+
+	if verdict.IsKnownGood {
+		fmt.Printf("\n   [+] CLEAN: %s\n", verdict.Source)
+		waitForKey()
+		return
+	}
+
+	fmt.Println("\n[?] VERDICT: UNKNOWN / SUSPICIOUS")
+	fmt.Println("    Hash not found in any database and has no trusted signature.")
 	waitForKey()
 }

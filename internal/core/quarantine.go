@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -15,11 +16,8 @@ type QuarantineJail struct {
 
 func NewQuarantineJail(path string) *QuarantineJail {
 	if path == "" {
-		// Default to a hidden folder in program data or root
-		path = "C:\\ArakneJail"
-		if os.PathSeparator == '/' {
-			path = "/var/lib/arakne/jail"
-		}
+		// Default to C:\Arakne\Quarantine
+		path = QuarantineDir
 	}
 	return &QuarantineJail{JailPath: path}
 }
@@ -43,7 +41,7 @@ func (q *QuarantineJail) Lockup(sourcePath string) error {
 	// 3. Move and XOR Encode
 	// We don't just move; we read, encode, write, then delete source.
 	// This defeats "Resurrection" scripts that watch for file handles.
-	
+
 	srcFile, err := os.Open(sourcePath)
 	if err != nil {
 		return fmt.Errorf("failed to open source threat: %v", err)
@@ -58,7 +56,7 @@ func (q *QuarantineJail) Lockup(sourcePath string) error {
 
 	// XOR Key (Simplistic neutralization)
 	key := byte(0xAA)
-	
+
 	buf := make([]byte, 4096)
 	for {
 		n, err := srcFile.Read(buf)
@@ -86,4 +84,95 @@ func (q *QuarantineJail) Lockup(sourcePath string) error {
 
 	fmt.Printf("[+] THREAT JAILED: %s -> %s\n", sourcePath, destPath)
 	return nil
+}
+
+// Restore extracts a file from quarantine and restores it to original location
+func (q *QuarantineJail) Restore(quarantineFile string) (string, error) {
+	// Full path to quarantine file
+	srcPath := filepath.Join(q.JailPath, quarantineFile)
+
+	// Check if file exists
+	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("quarantine file not found: %s", quarantineFile)
+	}
+
+	// Parse original filename from quarantine name
+	// Format: YYYYMMDD_HHMMSS_originalname.quarantine
+	baseName := filepath.Base(quarantineFile)
+	if !strings.HasSuffix(baseName, ".quarantine") {
+		return "", fmt.Errorf("not a quarantine file: %s", baseName)
+	}
+
+	// Remove .quarantine suffix
+	baseName = strings.TrimSuffix(baseName, ".quarantine")
+
+	// Extract original filename (after first two underscores: date_time_filename)
+	parts := strings.SplitN(baseName, "_", 3)
+	originalName := baseName
+	if len(parts) >= 3 {
+		originalName = parts[2]
+	}
+
+	// Restore to Downloads folder (safe location)
+	restorePath := filepath.Join(os.Getenv("USERPROFILE"), "Downloads", "Restored_"+originalName)
+
+	// Read encrypted file
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open quarantine file: %v", err)
+	}
+	defer srcFile.Close()
+
+	// Create restored file
+	dstFile, err := os.Create(restorePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create restored file: %v", err)
+	}
+	defer dstFile.Close()
+
+	// XOR Key (same as encryption)
+	key := byte(0xAA)
+
+	// Decrypt and write
+	buf := make([]byte, 4096)
+	for {
+		n, err := srcFile.Read(buf)
+		if n > 0 {
+			// Decrypt buffer in place (XOR is reversible)
+			for i := 0; i < n; i++ {
+				buf[i] ^= key
+			}
+			dstFile.Write(buf[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+
+	fmt.Printf("[+] RESTORED: %s -> %s\n", quarantineFile, restorePath)
+	return restorePath, nil
+}
+
+// ListQuarantine returns list of quarantined files
+func (q *QuarantineJail) ListQuarantine() ([]string, error) {
+	files := []string{}
+
+	entries, err := os.ReadDir(q.JailPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return files, nil
+		}
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".quarantine") {
+			files = append(files, entry.Name())
+		}
+	}
+
+	return files, nil
 }

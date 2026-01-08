@@ -219,7 +219,7 @@ func (b *BrowserScanner) scanJavaScriptFile(filePath, extName, browser string) [
 		{`chrome\.webRequest`, "Network request interception", core.LevelMedium},
 		{`XMLHttpRequest|fetch\s*\(`, "Network requests", core.LevelLow},
 		{`localStorage|sessionStorage`, "Storage access", core.LevelLow},
-		{`\\\x[0-9a-fA-F]{2}`, "Hex-escaped strings", core.LevelMedium},
+		{`\\x[0-9a-fA-F]{2}`, "Hex-escaped strings", core.LevelMedium},
 		{`\\u[0-9a-fA-F]{4}`, "Unicode-escaped strings", core.LevelLow},
 		{`[a-zA-Z0-9+/=]{100,}`, "Long base64 string (possible payload)", core.LevelHigh},
 		{`_0x[a-fA-F0-9]+`, "Obfuscated variable names", core.LevelHigh},

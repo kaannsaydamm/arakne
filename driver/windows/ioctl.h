@@ -2,7 +2,6 @@
 #define IOCTL_H
 
 #include <ntddk.h>
-#include <wdf.h>
 
 // Device Type (Unknown = 0x22 is standard for 3rd party)
 #define FILE_DEVICE_ARAKNE  0x00008000

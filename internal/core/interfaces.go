@@ -13,12 +13,24 @@ const (
 	LevelCritical
 )
 
+// ThreatType defines the category of the threat
+type ThreatType int
+
+const (
+	ThreatTypeFile     ThreatType = iota // Default
+	ThreatTypeProcess                    // Running Process
+	ThreatTypeRegistry                   // Registry Key/Value
+	ThreatTypeConfig                     // System Configuration (BIOS/UEFI)
+)
+
 // Threat represents a detected security issue
 type Threat struct {
 	Name        string
 	Description string
 	FilePath    string
+	FileHash    string // SHA256
 	Level       ThreatLevel
+	Type        ThreatType
 	Score       int // 0-100
 	Details     map[string]interface{}
 }

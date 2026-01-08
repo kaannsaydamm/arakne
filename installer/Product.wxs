@@ -1,0 +1,81 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+    <Package Name="Arakne Surgical Platform" Language="1033" Version="1.1.0.0" Manufacturer="Arakne Security" UpgradeCode="BE3324C4-77A8-4AC2-8077-88F576352932" InstallerVersion="200" Compressed="yes" Scope="perMachine">
+        
+        <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+        <MediaTemplate EmbedCab="yes" />
+
+        <Feature Id="ProductFeature" Title="Arakne" Level="1">
+            <ComponentGroupRef Id="ProductComponents" />
+            <ComponentGroupRef Id="DriverComponents" />
+        </Feature>
+
+        <!-- User Interface -->
+        <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+        <WixVariable Id="WixUILicenseRtf" Value="..\LICENSE.rtf" />
+
+        <!-- Launch on Exit -->
+        <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Driver Installer (Required)" />
+        <Property Id="WixShellExecTarget" Value="[#SetupDriverBat]" />
+        <CustomAction Id="LaunchApplication" BinaryRef="Wix4UtilCA_X86" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+
+        <UI>
+            <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+        </UI>
+
+        <!-- Directories (Structure Definition) -->
+        <StandardDirectory Id="TARGETDIR">
+            <Directory Id="INSTALLFOLDER" Name="Arakne">
+                <Directory Id="DriverRoot" Name="driver">
+                    <Directory Id="DriversFolder" Name="windows" />
+                </Directory>
+            </Directory>
+        </StandardDirectory>
+        
+        <StandardDirectory Id="DesktopFolder" />
+        <StandardDirectory Id="ProgramMenuFolder">
+             <Directory Id="ApplicationProgramsFolder" Name="Arakne Security" />
+        </StandardDirectory>
+    </Package>
+
+    <!-- Content Definitions -->
+    <Fragment>
+        <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+            <Component Id="ArakneExe" Guid="66034177-38D5-4081-AE35-9AEC9037B5C2">
+                <File Id="ArakneExe" Source="..\arakne.exe" KeyPath="yes">
+                    <!-- Desktop Shortcut (Standard, non-advertised) -->
+                    <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="Arakne" WorkingDirectory="INSTALLFOLDER" Icon="ArakneIcon.exe" Advertise="no" />
+                    <!-- Start Menu Shortcut -->
+                    <Shortcut Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Name="Arakne" WorkingDirectory="INSTALLFOLDER" Icon="ArakneIcon.exe" Advertise="no" />
+                </File>
+                <!-- Registry Key to create Start Menu folder -->
+                <RegistryValue Root="HKCU" Key="Software\ArakneSecurity\Arakne" Name="installed" Type="integer" Value="1" KeyPath="no" />
+            </Component>
+            <Component Id="SetupScript" Guid="98C6D14A-BF39-4E6C-81F9-6E2C917B6D83">
+                <File Source="..\setup.ps1" />
+            </Component>
+            <Component Id="CleanupMain" Guid="*">
+                 <RemoveFolder Id="CleanupShortcutFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+                 <RegistryValue Root="HKCU" Key="Software\ArakneSecurity\Arakne" Name="cleanup" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+
+    <Fragment>
+        <ComponentGroup Id="DriverComponents" Directory="DriversFolder">
+            <Component Id="WfpDriver" Guid="5548F572-8356-4275-871B-619EB241D353">
+                <File Source="..\driver\windows\arakne_wfp.sys" />
+            </Component>
+            <Component Id="InstallScript" Guid="1218F12A-18D6-42D0-9118-2029B85633C4">
+                <File Source="..\driver\windows\install.ps1" />
+            </Component>
+            <Component Id="DriverSetupBat" Guid="9AE3F861-1254-4B44-98F1-56789ABCDEF0">
+                <File Id="SetupDriverBat" Source="..\driver\windows\setup_driver.bat" />
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+
+    <Fragment>
+        <Icon Id="ArakneIcon.exe" SourceFile="..\logo.ico" />
+        <Property Id="ARPPRODUCTICON" Value="ArakneIcon.exe" />
+    </Fragment>
+</Wix>
